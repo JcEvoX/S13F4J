@@ -201,4 +201,15 @@ class NoteDao {
     );
     return rows.map(SaltNode.fromMap).toList();
   }
+
+  /// 获取全部未回收文件夹（用于移动定位）。
+  Future<List<SaltNode>> allFolders() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'is_folder = 1 AND is_recycled = 0',
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
+    return rows.map(SaltNode.fromMap).toList();
+  }
 }

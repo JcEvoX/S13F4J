@@ -1,0 +1,107 @@
+import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+/// 关于页：版本信息与对原作者 Moriafly 的致谢。
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  static const _originalAuthor = 'Moriafly';
+  static const _originalRepo = 'https://github.com/Moriafly/SaltNoteSource';
+
+  Future<void> _launch(BuildContext context, String url) async {
+    final ok = await launchUrl(Uri.parse(url));
+    if (!ok && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('无法打开链接')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('关于')),
+      body: ListView(
+        padding: const EdgeInsets.all(24),
+        children: [
+          const SizedBox(height: 8),
+          Center(
+            child: Icon(Icons.restaurant_menu,
+                size: 72, color: Theme.of(context).colorScheme.primary),
+          ),
+          const SizedBox(height: 12),
+          const Center(
+            child: Text('椒盐笔记 · Flutter 跨平台版',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(height: 4),
+          Center(
+            child: Text('版本 1.0.0',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          ),
+          const SizedBox(height: 24),
+          const Divider(),
+          const _SectionTitle('🙏 致谢原作者'),
+          const SizedBox(height: 8),
+          Text(
+            '本项目的功能设计与交互参照了原 Android 开源项目'
+            '「椒盐笔记 (Salt Note)」。特别感谢原作者：',
+            style: TextStyle(height: 1.5, color: Colors.grey.shade700),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const CircleAvatar(child: Icon(Icons.person)),
+              title: const Text(_originalAuthor),
+              subtitle: const Text('GitHub: @$_originalAuthor'),
+              trailing: const Icon(Icons.open_in_new, size: 18),
+              onTap: () => _launch(context, 'https://github.com/Moriafly'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.link),
+            title: const Text('原项目仓库'),
+            subtitle: const Text(_originalRepo),
+            trailing: const Icon(Icons.open_in_new, size: 18),
+            onTap: () => _launch(context, _originalRepo),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '作者旗下其它开源项目：椒盐音乐 (SaltPlayerSource)、'
+            'DsoMusic、LyricViewX、Regret 等。',
+            style: TextStyle(height: 1.5, color: Colors.grey.shade700, fontSize: 13),
+          ),
+          const Divider(),
+          const _SectionTitle('声明'),
+          const SizedBox(height: 8),
+          Text(
+            '本仓库并非原 Android 源码的移植，而是基于原项目功能描述，用 Flutter '
+            '重新实现的跨平台学习项目。未包含任何原 Android 闭源代码。'
+            '原项目部分能力需要购买 Pro，本项目的功能与授权均以原项目为准，'
+            '本项目按 MIT 协议开源。',
+            style: TextStyle(height: 1.6, color: Colors.grey.shade700, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
+}
