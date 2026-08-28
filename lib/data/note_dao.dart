@@ -1,0 +1,204 @@
+import 'package:sqflite/sqflite.dart';
+
+import '../data/app_database.dart';
+import '../models/note.dart';
+
+/// 节点数据访问对象。
+class NoteDao {
+  /// 查询某一层级下的全部节点（文件夹与文章），按排序权重与创建时间排序。
+  /// [includeRecycled] 是否包含回收站节点（常规列表为 false）。
+  Future<List<SaltNode>> childrenOf({
+    String? parentId,
+    bool includeRecycled = false,
+  }) async {
+    final db = await AppDatabase.instance;
+    final where = StringBuffer('parent_id IS ');
+    final args = <Object?>[];
+    if (parentId == null) {
+      where.write('NULL');
+    } else {
+      where.write('?');
+      args.add(parentId);
+    }
+    if (!includeRecycled) {
+      where.write(' AND is_recycled = 0');
+    }
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: where.toString(),
+      whereArgs: args,
+      orderBy: 'sort_order ASC, created_at ASC',
+    );
+    return rows.map(SaltNode.fromMap).toList();
+  }
+
+  /// 根据 id 查询单个节点。
+  Future<SaltNode?> nodeById(String id) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return SaltNode.fromMap(rows.first);
+  }
+
+  /// 新增或更新节点（insert or replace）。
+  Future<void> saveNode(SaltNode node) async {
+    final db = await AppDatabase.instance;
+    await db.insert(
+      AppDatabase.tableNode,
+      node.toMap(),
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// 批量保存（用于拖拽排序、多选移动后的批量落库）。
+  Future<void> saveNodes(List<SaltNode> nodes) async {
+    final db = await AppDatabase.instance;
+    await db.transaction((txn) async {
+      for (final n in nodes) {
+        await txn.insert(
+          AppDatabase.tableNode,
+          n.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  /// 逻辑删除：移入回收站（写入 deleted_at）。
+  Future<void> moveToRecycleBin(List<SaltNode> nodes) async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      for (final n in nodes) {
+        await txn.update(
+          AppDatabase.tableNode,
+          {
+            'is_recycled': 1,
+            'deleted_at': now,
+            'updated_at': now,
+          },
+          where: 'id = ?',
+          whereArgs: [n.id],
+        );
+      }
+    });
+  }
+
+  /// 从回收站恢复（包括其下所有后代节点）。
+  Future<void> restoreNodes(List<SaltNode> roots) async {
+    final db = await AppDatabase.instance;
+    final ids = await _collectIds(roots);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      for (final id in ids) {
+        await txn.update(
+          AppDatabase.tableNode,
+          {'is_recycled': 0, 'deleted_at': null, 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+  }
+
+  /// 永久删除（含所有后代节点）。
+  Future<void> deletePermanently(List<SaltNode> roots) async {
+    final db = await AppDatabase.instance;
+    final ids = await _collectIds(roots);
+    await db.transaction((txn) async {
+      for (final id in ids) {
+        await txn.delete(
+          AppDatabase.tableNode,
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+  }
+
+  /// 递归收集一个节点集合及其全部后代的 id。
+  ///
+  /// 一次性读出整库（或按 is_recycled 过滤）构建「父 → 子」映射，
+  /// 避免递归多次查询。
+  Future<List<String>> _collectIds(List<SaltNode> roots) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(AppDatabase.tableNode);
+    final byParent = <String?, List<SaltNode>>{};
+    for (final r in rows) {
+      final n = SaltNode.fromMap(r);
+      byParent.putIfAbsent(n.parentId, () => []).add(n);
+    }
+
+    final out = <String>{};
+    void walk(List<SaltNode> nodes) {
+      for (final n in nodes) {
+        if (out.add(n.id)) {
+          final children = byParent[n.id];
+          if (children != null) walk(children);
+        }
+      }
+    }
+
+    walk(roots);
+    return out.toList();
+  }
+
+  /// 回收站列表（顶层回收站节点，去重后代）。
+  Future<List<SaltNode>> recycleBin() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'is_recycled = 1',
+      orderBy: 'deleted_at DESC',
+    );
+    final nodes = rows.map(SaltNode.fromMap).toList();
+    // 若某节点的父节点也在回收站，则它属于父节点的后代，不单独显示。
+    final recycledIds = nodes.map((n) => n.id).toSet();
+    return nodes
+        .where((n) => n.parentId == null || !recycledIds.contains(n.parentId))
+        .toList();
+  }
+
+  /// 关键词搜索（递归搜索所有未回收节点，返回直接命中的节点）。
+  Future<List<SaltNode>> search(String keyword) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'is_recycled = 0 AND (title LIKE ? OR content LIKE ?)',
+      whereArgs: ['%$keyword%', '%$keyword%'],
+      orderBy: 'updated_at DESC',
+    );
+    return rows.map(SaltNode.fromMap).toList();
+  }
+
+  /// 移动节点到目标层级（批量）。
+  Future<void> moveTo(List<String> ids, String? targetParentId) async {
+    final db = await AppDatabase.instance;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      for (final id in ids) {
+        await txn.update(
+          AppDatabase.tableNode,
+          {'parent_id': targetParentId, 'updated_at': now},
+          where: 'id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+  }
+
+  /// 自动备份：读取全部未回收节点（导出用基础）。
+  Future<List<SaltNode>> allActive() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'is_recycled = 0',
+    );
+    return rows.map(SaltNode.fromMap).toList();
+  }
+}
