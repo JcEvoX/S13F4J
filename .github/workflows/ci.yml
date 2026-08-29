@@ -49,7 +49,9 @@ jobs:
         run: flutter pub get
 
       - name: Static analysis
-        run: flutter analyze
+        # --no-fatal-infos：不同 Flutter 版本对 deprecated 提示的 info 级别不同，
+        # 只阻断 warning / error，避免因版本差异导致误判失败。
+        run: flutter analyze --no-fatal-infos
 
       - name: Run tests
         run: flutter test
