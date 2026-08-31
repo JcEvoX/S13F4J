@@ -14,7 +14,7 @@ class AppDatabase {
 
   static const String _dbName = 'app_database.db';
   static const int _version = 1;
-  static const String tableNode = 'node';
+  static const String tableNode = 'notepad_node';
 
   static Database? _db;
 

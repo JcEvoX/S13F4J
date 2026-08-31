@@ -31,7 +31,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _confirmDelete(List<Note> targets) async {
+  Future<void> _confirmDelete(List<NotePadNode> targets) async {
     final provider = context.read<NoteProvider>();
     final ok = await showDialog<bool>(
       context: context,
@@ -55,7 +55,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _showMoveDialog(List<Note> targets) async {
+  Future<void> _showMoveDialog(List<NotePadNode> targets) async {
     await showDialog<void>(
       context: context,
       builder: (ctx) => _MoveDialog(targets: targets),
@@ -200,7 +200,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTile(BuildContext context, NoteProvider provider, Note node) {
+  Widget _buildTile(BuildContext context, NoteProvider provider, NotePadNode node) {
     final selected = provider.selectedIds.contains(node.id);
     return Card(
       key: ValueKey(node.id),
@@ -246,7 +246,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget? _subtitle(Note node) {
+  Widget? _subtitle(NotePadNode node) {
     if (node.content.trim().isEmpty) return null;
     final firstLine = node.content.trim().split('\n').first;
     if (firstLine == node.title) return null;
@@ -336,7 +336,7 @@ class _EmptyHint extends StatelessWidget {
 class _MoveDialog extends StatefulWidget {
   const _MoveDialog({required this.targets});
 
-  final List<Note> targets;
+  final List<NotePadNode> targets;
 
   @override
   State<_MoveDialog> createState() => _MoveDialogState();
@@ -344,7 +344,7 @@ class _MoveDialog extends StatefulWidget {
 
 class _MoveDialogState extends State<_MoveDialog> {
   int? _selectedIndex;
-  List<Note> _folders = const [];
+  List<NotePadNode> _folders = const [];
 
   @override
   void initState() {

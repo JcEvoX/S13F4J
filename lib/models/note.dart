@@ -3,8 +3,8 @@
 /// 参照原 Android 端「类文件管理器」的多层级结构设计：
 /// 一个表同时承载「文件夹」和「文章」两种节点，通过 [isFolder] 区分。
 /// [parentId] 为空表示位于根层级，支持无限嵌套。
-class Note {
-  const Note({
+class NotePadNode {
+  const NotePadNode({
     required this.id,
     required this.isFolder,
     required this.title,
@@ -47,7 +47,7 @@ class Note {
   /// 删除时间（进入回收站时间），null 表示未删除。
   final int? deletedAt;
 
-  Note copyWith({
+  NotePadNode copyWith({
     String? title,
     String? content,
     String? parentId,
@@ -58,7 +58,7 @@ class Note {
     int? deletedAt,
     bool clearDeletedAt = false,
   }) {
-    return Note(
+    return NotePadNode(
       id: id,
       isFolder: isFolder,
       title: title ?? this.title,
@@ -87,8 +87,8 @@ class Note {
     };
   }
 
-  factory Note.fromMap(Map<String, Object?> map) {
-    return Note(
+  factory NotePadNode.fromMap(Map<String, Object?> map) {
+    return NotePadNode(
       id: map['id'] as String,
       isFolder: (map['is_folder'] as int) == 1,
       title: (map['title'] as String?) ?? '',
@@ -105,7 +105,7 @@ class Note {
   /// 文件夹是否为空（无任何子节点）——由调用方结合计数判断。
   bool get isRoot => parentId == null;
 
-  Note copy() => Note(
+  NotePadNode copy() => NotePadNode(
         id: id,
         isFolder: isFolder,
         title: title,

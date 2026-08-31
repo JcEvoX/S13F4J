@@ -7,7 +7,7 @@ import '../models/note.dart';
 class NoteDao {
   /// 查询某一层级下的全部节点（文件夹与文章），按排序权重与创建时间排序。
   /// [includeRecycled] 是否包含回收站节点（常规列表为 false）。
-  Future<List<Note>> childrenOf({
+  Future<List<NotePadNode>> childrenOf({
     String? parentId,
     bool includeRecycled = false,
   }) async {
@@ -29,11 +29,11 @@ class NoteDao {
       whereArgs: args,
       orderBy: 'sort_order ASC, created_at ASC',
     );
-    return rows.map(Note.fromMap).toList();
+    return rows.map(NotePadNode.fromMap).toList();
   }
 
   /// 根据 id 查询单个节点。
-  Future<Note?> nodeById(String id) async {
+  Future<NotePadNode?> nodeById(String id) async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       AppDatabase.tableNode,
@@ -42,11 +42,11 @@ class NoteDao {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return Note.fromMap(rows.first);
+    return NotePadNode.fromMap(rows.first);
   }
 
   /// 新增或更新节点（insert or replace）。
-  Future<void> saveNode(Note node) async {
+  Future<void> saveNode(NotePadNode node) async {
     final db = await AppDatabase.instance;
     await db.insert(
       AppDatabase.tableNode,
@@ -56,7 +56,7 @@ class NoteDao {
   }
 
   /// 批量保存（用于拖拽排序、多选移动后的批量落库）。
-  Future<void> saveNodes(List<Note> nodes) async {
+  Future<void> saveNodes(List<NotePadNode> nodes) async {
     final db = await AppDatabase.instance;
     await db.transaction((txn) async {
       for (final n in nodes) {
@@ -70,7 +70,7 @@ class NoteDao {
   }
 
   /// 逻辑删除：移入回收站（写入 deleted_at）。
-  Future<void> moveToRecycleBin(List<Note> nodes) async {
+  Future<void> moveToRecycleBin(List<NotePadNode> nodes) async {
     final db = await AppDatabase.instance;
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.transaction((txn) async {
@@ -90,7 +90,7 @@ class NoteDao {
   }
 
   /// 从回收站恢复（包括其下所有后代节点）。
-  Future<void> restoreNodes(List<Note> roots) async {
+  Future<void> restoreNodes(List<NotePadNode> roots) async {
     final db = await AppDatabase.instance;
     final ids = await _collectIds(roots);
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -107,7 +107,7 @@ class NoteDao {
   }
 
   /// 永久删除（含所有后代节点）。
-  Future<void> deletePermanently(List<Note> roots) async {
+  Future<void> deletePermanently(List<NotePadNode> roots) async {
     final db = await AppDatabase.instance;
     final ids = await _collectIds(roots);
     await db.transaction((txn) async {
@@ -125,17 +125,17 @@ class NoteDao {
   ///
   /// 一次性读出整库（或按 is_recycled 过滤）构建「父 → 子」映射，
   /// 避免递归多次查询。
-  Future<List<String>> _collectIds(List<Note> roots) async {
+  Future<List<String>> _collectIds(List<NotePadNode> roots) async {
     final db = await AppDatabase.instance;
     final rows = await db.query(AppDatabase.tableNode);
-    final byParent = <String?, List<Note>>{};
+    final byParent = <String?, List<NotePadNode>>{};
     for (final r in rows) {
-      final n = Note.fromMap(r);
+      final n = NotePadNode.fromMap(r);
       byParent.putIfAbsent(n.parentId, () => []).add(n);
     }
 
     final out = <String>{};
-    void walk(List<Note> nodes) {
+    void walk(List<NotePadNode> nodes) {
       for (final n in nodes) {
         if (out.add(n.id)) {
           final children = byParent[n.id];
@@ -149,14 +149,14 @@ class NoteDao {
   }
 
   /// 回收站列表（顶层回收站节点，去重后代）。
-  Future<List<Note>> recycleBin() async {
+  Future<List<NotePadNode>> recycleBin() async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       AppDatabase.tableNode,
       where: 'is_recycled = 1',
       orderBy: 'deleted_at DESC',
     );
-    final nodes = rows.map(Note.fromMap).toList();
+    final nodes = rows.map(NotePadNode.fromMap).toList();
     // 若某节点的父节点也在回收站，则它属于父节点的后代，不单独显示。
     final recycledIds = nodes.map((n) => n.id).toSet();
     return nodes
@@ -165,7 +165,7 @@ class NoteDao {
   }
 
   /// 关键词搜索（递归搜索所有未回收节点，返回直接命中的节点）。
-  Future<List<Note>> search(String keyword) async {
+  Future<List<NotePadNode>> search(String keyword) async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       AppDatabase.tableNode,
@@ -173,7 +173,7 @@ class NoteDao {
       whereArgs: ['%$keyword%', '%$keyword%'],
       orderBy: 'updated_at DESC',
     );
-    return rows.map(Note.fromMap).toList();
+    return rows.map(NotePadNode.fromMap).toList();
   }
 
   /// 移动节点到目标层级（批量）。
@@ -193,23 +193,23 @@ class NoteDao {
   }
 
   /// 自动备份：读取全部未回收节点（导出用基础）。
-  Future<List<Note>> allActive() async {
+  Future<List<NotePadNode>> allActive() async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       AppDatabase.tableNode,
       where: 'is_recycled = 0',
     );
-    return rows.map(Note.fromMap).toList();
+    return rows.map(NotePadNode.fromMap).toList();
   }
 
   /// 获取全部未回收文件夹（用于移动定位）。
-  Future<List<Note>> allFolders() async {
+  Future<List<NotePadNode>> allFolders() async {
     final db = await AppDatabase.instance;
     final rows = await db.query(
       AppDatabase.tableNode,
       where: 'is_folder = 1 AND is_recycled = 0',
       orderBy: 'sort_order ASC, created_at ASC',
     );
-    return rows.map(Note.fromMap).toList();
+    return rows.map(NotePadNode.fromMap).toList();
   }
 }

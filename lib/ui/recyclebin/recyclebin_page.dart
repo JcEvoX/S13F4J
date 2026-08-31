@@ -73,7 +73,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 删除';
   }
 
-  Future<void> _restore(BuildContext context, NoteProvider provider, Note node) async {
+  Future<void> _restore(BuildContext context, NoteProvider provider, NotePadNode node) async {
     await provider.restoreFromRecycle([node]);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -82,7 +82,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     }
   }
 
-  Future<void> _purge(BuildContext context, NoteProvider provider, Note node) async {
+  Future<void> _purge(BuildContext context, NoteProvider provider, NotePadNode node) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
