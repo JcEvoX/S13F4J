@@ -1,6 +1,6 @@
-# 椒盐笔记 · Flutter 跨平台版（Salt Note for Flutter）
+# NotePad
 
-> 一款纯文本 + Markdown 的跨平台笔记软件，可用于便签、日记、文稿撰写。
+> NotePad：一款纯文本 + Markdown 的跨平台笔记软件，可用于便签、日记、文稿撰写。
 > 本仓库是基于原 Android 版「椒盐笔记」**用 Flutter 重新实现**的
 > **Android / iOS / 桌面（预研）** 三端工程，按功能模块增量演进。
 
