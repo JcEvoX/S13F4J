@@ -8,10 +8,15 @@ name: Release
 #   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
 # 并解除下方 release 签名步骤的注释。
 
+# 触发方式：
+#   1. 推送 v* 版本标签（如 v1.0.0）——发大版本
+#   2. 手动触发（Actions -> Release -> Run workflow，可指定分支）——发小版本/小优化，
+#      版本号自动基于 commit 计数递增，无需手动升大版本号。
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
