@@ -38,7 +38,7 @@ class WebDavService {
 
   final Client _client;
 
-  static const String backupDir = '/SaltNoteBackup';
+  static const String backupDir = '/NotePadBackup';
 
   /// 登录并创建客户端。
   static Future<WebDavService> connect(WebDavConfig config) async {

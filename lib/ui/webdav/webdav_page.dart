@@ -101,10 +101,10 @@ class _WebDavPageState extends State<WebDavPage> {
     }
     final t = DateTime.now();
     final name =
-        'saltnote-backup-${t.year}${_pad2(t.month)}${_pad2(t.day)}-${_pad2(t.hour)}${_pad2(t.minute)}.json';
+        'notepad-backup-${t.year}${_pad2(t.month)}${_pad2(t.day)}-${_pad2(t.hour)}${_pad2(t.minute)}.json';
     try {
       // 读取当前全部笔记（通过上次加载的数据）。实际实现可接线 DAO。
-      const placeholder = '[{"app":"salt_note"}]';
+      const placeholder = '[{"app":"notepad"}]';
       await s.uploadText(name, placeholder);
       await _refreshList();
       _toast('备份成功：$name');

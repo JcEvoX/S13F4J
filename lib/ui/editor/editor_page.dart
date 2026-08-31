@@ -25,7 +25,7 @@ class _EditorPageState extends State<EditorPage> {
   final _controller = TextEditingController();
   final _focus = FocusNode();
 
-  SaltNode? _node;
+  Note? _node;
   bool _loading = true;
   bool _dirty = false;
   int _wordCount = 0;

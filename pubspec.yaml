@@ -1,5 +1,5 @@
-name: salt_note
-description: "椒盐笔记 Flutter 跨平台版 (Salt Note for Flutter)"
+name: notepad
+description: "NotePad - 跨平台笔记应用"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev

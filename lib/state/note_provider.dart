@@ -13,8 +13,8 @@ class NoteProvider extends ChangeNotifier {
   final NoteDao _dao;
 
   /// 当前展示层级下的节点列表。
-  List<SaltNode> _nodes = [];
-  List<SaltNode> get nodes => _nodes;
+  List<Note> _nodes = [];
+  List<Note> get nodes => _nodes;
 
   /// 当前层级父节点 id（null 为根层级）。
   String? _currentParentId;
@@ -29,12 +29,12 @@ class NoteProvider extends ChangeNotifier {
   Set<String> get selectedIds => Set.unmodifiable(_selectedIds);
 
   /// 回收站顶层节点列表。
-  List<SaltNode> _recycleNodes = [];
-  List<SaltNode> get recycleNodes => _recycleNodes;
+  List<Note> _recycleNodes = [];
+  List<Note> get recycleNodes => _recycleNodes;
 
   /// 搜索结果缓存。
-  List<SaltNode> _searchResults = [];
-  List<SaltNode> get searchResults => _searchResults;
+  List<Note> _searchResults = [];
+  List<Note> get searchResults => _searchResults;
 
   bool _loading = false;
   bool get loading => _loading;
@@ -71,24 +71,24 @@ class NoteProvider extends ChangeNotifier {
   }
 
   /// 进入某子文件夹（记录返回栈）。
-  Future<void> openFolder(SaltNode folder) async {
+  Future<void> openFolder(Note folder) async {
     pushCurrent();
     await loadFolder(folder.id);
   }
 
   /// 获取全部未回收文件夹（用于移动定位）。
-  Future<List<SaltNode>> allFolders() async {
+  Future<List<Note>> allFolders() async {
     return _dao.allFolders();
   }
 
   /// 新建节点（文件或文件夹）。
-  Future<SaltNode> createNode({
+  Future<Note> createNode({
     required bool isFolder,
     required String title,
     String content = '',
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    final node = SaltNode(
+    final node = Note(
       id: now.toString(),
       isFolder: isFolder,
       title: title,
@@ -105,7 +105,7 @@ class NoteProvider extends ChangeNotifier {
   }
 
   /// 更新节点内容（编辑时实时保存）。
-  Future<void> updateNode(SaltNode updated) async {
+  Future<void> updateNode(Note updated) async {
     final merged = updated.copyWith(
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     );
@@ -115,7 +115,7 @@ class NoteProvider extends ChangeNotifier {
 
   // ---- 选中 / 多选 ----
 
-  void enterSelection(SaltNode node) {
+  void enterSelection(Note node) {
     _selectionMode = true;
     _selectedIds.clear();
     _selectedIds.add(node.id);
@@ -150,13 +150,13 @@ class NoteProvider extends ChangeNotifier {
   }
 
   /// 当前被选中的节点对象列表。
-  List<SaltNode> get selectedNodes =>
+  List<Note> get selectedNodes =>
       _nodes.where((n) => _selectedIds.contains(n.id)).toList();
 
   // ---- 删除 / 回收站 ----
 
   /// 将选中（或给定）节点移入回收站。
-  Future<void> deleteToRecycle(List<SaltNode> targets) async {
+  Future<void> deleteToRecycle(List<Note> targets) async {
     await _dao.moveToRecycleBin(targets);
     exitSelection();
     await refresh();
@@ -168,12 +168,12 @@ class NoteProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> restoreFromRecycle(List<SaltNode> targets) async {
+  Future<void> restoreFromRecycle(List<Note> targets) async {
     await _dao.restoreNodes(targets);
     await loadRecycleBin();
   }
 
-  Future<void> purgeFromRecycle(List<SaltNode> targets) async {
+  Future<void> purgeFromRecycle(List<Note> targets) async {
     await _dao.deletePermanently(targets);
     await loadRecycleBin();
   }
@@ -183,7 +183,7 @@ class NoteProvider extends ChangeNotifier {
   /// 拖拽重排：更新子节点的 sort_order 并批量落库。
   Future<void> reorder(int oldIndex, int newIndex) async {
     if (newIndex > oldIndex) newIndex -= 1;
-    final updated = List<SaltNode>.from(_nodes);
+    final updated = List<Note>.from(_nodes);
     final moved = updated.removeAt(oldIndex);
     updated.insert(newIndex, moved);
     for (var i = 0; i < updated.length; i++) {
@@ -213,5 +213,5 @@ class NoteProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<SaltNode?> nodeById(String id) => _dao.nodeById(id);
+  Future<Note?> nodeById(String id) => _dao.nodeById(id);
 }

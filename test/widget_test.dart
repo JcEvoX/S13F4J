@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:salt_note/services/settings_service.dart';
-import 'package:salt_note/theme/theme_controller.dart';
+import 'package:notepad/services/settings_service.dart';
+import 'package:notepad/theme/theme_controller.dart';
 
 void main() {
   test('ThemeController 默认跟随系统', () {

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
 
-/// 提供了「椒盐笔记」风格的统一配色与亮/暗两套主题。
+/// 提供了 NotePad 风格的统一配色与亮/暗两套主题。
 ///
-/// 颜色取材灵感来自原应用简洁、温润、以纸色与墨色为主的观感。
+/// 颜色取材灵感来自简洁、温润、以纸色与墨色为主的观感。
 class AppTheme {
-  /// 品牌主色调（盐系暖橙色，与「椒盐」意象呼应）。
+  /// 品牌主色调（暖橙色）。
   static const Color primary = Color(0xFFE8853D);
 
   /// 亮色背景（纸色）。

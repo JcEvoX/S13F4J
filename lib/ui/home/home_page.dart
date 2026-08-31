@@ -31,7 +31,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _confirmDelete(List<SaltNode> targets) async {
+  Future<void> _confirmDelete(List<Note> targets) async {
     final provider = context.read<NoteProvider>();
     final ok = await showDialog<bool>(
       context: context,
@@ -55,7 +55,7 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<void> _showMoveDialog(List<SaltNode> targets) async {
+  Future<void> _showMoveDialog(List<Note> targets) async {
     await showDialog<void>(
       context: context,
       builder: (ctx) => _MoveDialog(targets: targets),
@@ -68,7 +68,7 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(provider.currentParentId == null ? '椒盐笔记' : '.. 返回上层'),
+        title: Text(provider.currentParentId == null ? 'NotePad' : '.. 返回上层'),
         leading: provider.currentParentId != null
             ? IconButton(
                 icon: const Icon(Icons.arrow_back),
@@ -200,7 +200,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget _buildTile(BuildContext context, NoteProvider provider, SaltNode node) {
+  Widget _buildTile(BuildContext context, NoteProvider provider, Note node) {
     final selected = provider.selectedIds.contains(node.id);
     return Card(
       key: ValueKey(node.id),
@@ -246,7 +246,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Widget? _subtitle(SaltNode node) {
+  Widget? _subtitle(Note node) {
     if (node.content.trim().isEmpty) return null;
     final firstLine = node.content.trim().split('\n').first;
     if (firstLine == node.title) return null;
@@ -336,7 +336,7 @@ class _EmptyHint extends StatelessWidget {
 class _MoveDialog extends StatefulWidget {
   const _MoveDialog({required this.targets});
 
-  final List<SaltNode> targets;
+  final List<Note> targets;
 
   @override
   State<_MoveDialog> createState() => _MoveDialogState();
@@ -344,7 +344,7 @@ class _MoveDialog extends StatefulWidget {
 
 class _MoveDialogState extends State<_MoveDialog> {
   int? _selectedIndex;
-  List<SaltNode> _folders = const [];
+  List<Note> _folders = const [];
 
   @override
   void initState() {

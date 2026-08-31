@@ -42,7 +42,7 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
-  Widget _buildResults(List<SaltNode> results) {
+  Widget _buildResults(List<Note> results) {
     if (results.isEmpty) {
       return Center(
         child: Text(

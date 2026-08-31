@@ -8,8 +8,8 @@ enum StartPage { home, editor }
 
 /// 应用设置服务。
 ///
-/// 对应原 Android 端基于 MMKV 的键值存储（`key_default_language`、
-/// `salt_note_folder_uri` 等），跨平台统一使用 shared_preferences 实现，
+/// 对应原 Android 端基于 MMKV 的键值存储（如 `key_default_language`、
+/// `pref_backup_folder_path` 等），跨平台统一使用 shared_preferences 实现，
 /// Android / iOS / 桌面端行为一致。
 class SettingsService {
   SettingsService._(this._prefs);

@@ -7,11 +7,11 @@ import 'theme/theme_controller.dart';
 import 'ui/home/home_page.dart';
 
 void main() {
-  runApp(const SaltNoteApp());
+  runApp(const NotePadApp());
 }
 
-class SaltNoteApp extends StatelessWidget {
-  const SaltNoteApp({super.key});
+class NotePadApp extends StatelessWidget {
+  const NotePadApp({super.key});
 
   @override
   Widget build(BuildContext context) {

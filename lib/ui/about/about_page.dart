@@ -30,7 +30,7 @@ class AboutPage extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           const Center(
-            child: Text('椒盐笔记 · Flutter 跨平台版',
+            child: Text('NotePad',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(height: 4),
