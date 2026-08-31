@@ -1,4 +1,4 @@
-package com.jcevox.saltnote.salt_note
+package me.jcevox.s13f4j
 
 import io.flutter.embedding.android.FlutterActivity
 

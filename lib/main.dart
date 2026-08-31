@@ -32,7 +32,7 @@ class _Root extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeController = context.watch<ThemeController>();
     return MaterialApp(
-      title: '椒盐笔记',
+      title: 'NotePad',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
