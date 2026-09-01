@@ -59,8 +59,8 @@ jobs:
       - name: Build debug APKs (split by ABI)
         if: matrix.platform == 'android'
         # 与 release 一致按 ABI 拆分，避免产出塞入所有架构的 fat APK。
-        # abiFilters 限定 arm64-v8a / armeabi-v7a，产物为两个独立 debug APK。
-        run: flutter build apk --debug --split-per-abi
+        # --target-platform 限定只构建 arm / arm64，排除 x86_64，产物为两个独立 debug APK。
+        run: flutter build apk --debug --split-per-abi --target-platform android-arm,android-arm64
 
       - name: Upload debug APK artifacts
         if: matrix.platform == 'android'

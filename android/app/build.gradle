@@ -30,19 +30,6 @@ android {
         versionName = flutter.versionName
     }
 
-    // 分架构编译：用 splits.abi 控制拆包范围，只产出主流真机 ABI（arm64-v8a / armeabi-v7a），
-    // 避免把 x86_64 等塞进安装包导致体积膨胀。
-    // 注意：splits.abi 与 ndk.abiFilters 不能同时使用（Gradle 报 Conflicting configuration 冲突），
-    // 分架构拆包统一由 splits.abi + --split-per-abi 完成。
-    splits {
-        abi {
-            isEnable = true
-            reset()
-            include("arm64-v8a", "armeabi-v7a")
-            isUniversalApk = false
-        }
-    }
-
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
