@@ -7,21 +7,25 @@ import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'ui/home/home_page.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // 启动周期自动备份（应用运行期间）。
   AutoBackupService.instance.start();
-  runApp(const NotePadApp());
+  // 启动时从持久化设置恢复主题模式，保证全局主题与用户选择一致。
+  final themeController = await ThemeController.load();
+  runApp(NotePadApp(themeController: themeController));
 }
 
 class NotePadApp extends StatelessWidget {
-  const NotePadApp({super.key});
+  const NotePadApp({super.key, required this.themeController});
+
+  final ThemeController themeController;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => ThemeController()),
+        ChangeNotifierProvider.value(value: themeController),
         ChangeNotifierProvider(create: (_) => NoteProvider()),
       ],
       child: const _Root(),

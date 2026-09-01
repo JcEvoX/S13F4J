@@ -194,6 +194,7 @@ class _SettingsPageState extends State<SettingsPage> {
           // 通知全局 ThemeController 切换主题。
           if (!mounted) return;
           context.read<ThemeController>().setMode(selected);
+          setState(() {});
         }
       },
     );

@@ -7,6 +7,12 @@ class ThemeController extends ChangeNotifier {
   ThemeController([ThemeModeOption initial = ThemeModeOption.system])
       : _mode = initial;
 
+  /// 从持久化设置恢复主题模式，保证启动后全局主题与用户选择一致。
+  static Future<ThemeController> load() async {
+    final settings = await SettingsService.instance;
+    return ThemeController(settings.themeMode);
+  }
+
   ThemeModeOption _mode;
   ThemeModeOption get mode => _mode;
 

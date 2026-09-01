@@ -91,8 +91,10 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Build release APKs (split by ABI)
-        # --split-per-abi：分别产出 arm64-v8a / armeabi-v7a / x86_64 的独立 APK，
-        # 相比通用 fat APK 体积可缩减约 60%~70%，用户按设备架构下载安装。
+        # --split-per-abi：分别产出按 ABI 拆分的独立 APK，相比通用 fat APK
+        # 体积可缩减约 60%~70%，用户按设备架构下载安装。
+        # 注意：android/app/build.gradle 的 ndk.abiFilters 已限定只保留真机主流架构
+        # （arm64-v8a / armeabi-v7a），因此这里不会产出 x86_64 APK。
         run: flutter build apk --release --split-per-abi --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
 
       - name: Build release AAB
@@ -105,7 +107,6 @@ jobs:
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/NotePad-${VER}-arm64-v8a.apk"
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/NotePad-${VER}-armeabi-v7a.apk"
-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/NotePad-${VER}-x86_64.apk"
           cp build/app/outputs/bundle/release/app-release.aab "dist/NotePad-${VER}.aab"
           ls -lh dist/
 
