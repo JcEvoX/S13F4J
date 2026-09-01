@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../models/note.dart';
@@ -8,8 +9,11 @@ import '../../widgets/wallpaper_background.dart';
 import '../editor/editor_page.dart';
 import '../webdav/webdav_page.dart';
 import '../recyclebin/recyclebin_page.dart';
+import '../recent/recent_page.dart';
 import '../search/search_page.dart';
 import '../settings/settings_page.dart';
+import '../statistics/statistics_page.dart';
+import '../backuprestore/backup_restore_page.dart';
 
 /// 首页：类文件管理器的多层级文章管理。
 ///
@@ -66,54 +70,91 @@ class _HomePageState extends State<HomePage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<NoteProvider>();
+    final colors = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(provider.currentParentId == null ? 'NotePad' : '.. 返回上层'),
-        leading: provider.currentParentId != null
-            ? IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () =>
-                    context.read<NoteProvider>().navigateUp(),
-              )
-            : null,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.search),
-            tooltip: '搜索',
-            onPressed: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const SearchPage()),
-            ),
-          ),
-          PopupMenuButton<String>(
-            onSelected: (v) => _handleMenu(v, provider),
-            itemBuilder: (_) => [
-              const PopupMenuItem(value: 'new_folder', child: Text('新建文件夹')),
-              const PopupMenuItem(value: 'new_note', child: Text('新建文章')),
-              const PopupMenuItem(value: 'recycle', child: Text('回收站')),
-              const PopupMenuItem(value: 'webdav', child: Text('WebDAV 备份')),
-              const PopupMenuItem(value: 'settings', child: Text('设置')),
+    // 沉浸式标题栏：状态栏图标颜色随主题切换，壁纸铺满整屏。
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: isDark
+          ? SystemUiOverlayStyle.light
+          : SystemUiOverlayStyle.dark,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: WallpaperBackground(
+          child: Column(
+            children: [
+              _buildTopBar(context, provider, colors),
+              if (provider.selectionMode)
+                _buildSelectionBar(context, provider),
+              Expanded(child: _buildBody(provider)),
             ],
           ),
-        ],
-        bottom: provider.selectionMode
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: _buildSelectionBar(context, provider),
-              )
-            : null,
+        ),
+        floatingActionButton: provider.selectionMode
+            ? null
+            : _SpeedDial(
+                color: colors.primary,
+                onAddNote: () => _showCreateSheet(provider, isFolder: false),
+                onAddFolder: () => _showCreateSheet(provider, isFolder: true),
+              ),
       ),
-      body: WallpaperBackground(
-        child: _buildBody(provider),
-      ),
-      floatingActionButton: provider.selectionMode
-          ? null
-          : FloatingActionButton(
-              heroTag: 'fab_add',
-              onPressed: () => _showCreateSheet(provider),
-              child: const Icon(Icons.add),
+    );
+  }
+
+  /// 自绘沉浸式标题栏（贴近原版 TitleBar 的简洁观感）。
+  Widget _buildTopBar(
+    BuildContext context,
+    NoteProvider provider,
+    ColorScheme colors,
+  ) {
+    return SafeArea(
+      bottom: false,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+        child: Row(
+          children: [
+            if (provider.currentParentId != null)
+              IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '返回上层',
+                onPressed: () => context.read<NoteProvider>().navigateUp(),
+              ),
+            Expanded(
+              child: Text(
+                provider.currentParentId == null ? 'NotePad' : '文件夹',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: colors.onSurface,
+                ),
+              ),
             ),
+            IconButton(
+              icon: const Icon(Icons.search),
+              tooltip: '搜索',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SearchPage()),
+              ),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (v) => _handleMenu(v, provider),
+              itemBuilder: (_) => [
+                const PopupMenuItem(value: 'new_folder', child: Text('新建文件夹')),
+                const PopupMenuItem(value: 'new_note', child: Text('新建文章')),
+                const PopupMenuItem(value: 'recycle', child: Text('回收站')),
+                const PopupMenuItem(value: 'webdav', child: Text('WebDAV 备份')),
+                const PopupMenuItem(value: 'settings', child: Text('设置')),
+                const PopupMenuItem(value: 'statistics', child: Text('统计')),
+                const PopupMenuItem(value: 'recent', child: Text('最近编辑')),
+                const PopupMenuItem(value: 'backup', child: Text('备份和恢复')),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -141,6 +182,24 @@ class _HomePageState extends State<HomePage> {
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const SettingsPage()),
+        );
+        break;
+      case 'statistics':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const StatisticsPage()),
+        );
+        break;
+      case 'recent':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const RecentPage()),
+        );
+        break;
+      case 'backup':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const BackupRestorePage()),
         );
         break;
     }
@@ -187,6 +246,12 @@ class _HomePageState extends State<HomePage> {
   Widget _buildBody(NoteProvider provider) {
     if (provider.loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (provider.error != null) {
+      return _ErrorView(
+        message: provider.error!,
+        onRetry: () => provider.loadFolder(provider.currentParentId),
+      );
     }
     if (provider.nodes.isEmpty) {
       return _EmptyHint(onCreate: () => _showCreateSheet(provider));
@@ -301,6 +366,41 @@ class _HomePageState extends State<HomePage> {
             child: const Text('创建'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// 数据加载失败的错误提示（替代无限转圈）。
+class _ErrorView extends StatelessWidget {
+  const _ErrorView({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 12),
+            const Text('数据加载失败'),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonal(onPressed: onRetry, child: const Text('重试')),
+          ],
+        ),
       ),
     );
   }
@@ -426,6 +526,108 @@ class _MoveDialogState extends State<_MoveDialog> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 右下角可展开的 Speed Dial（贴近原版 speed-dial 交互）。
+///
+/// 主按钮点击后在下方展开「新建文章」「新建文件夹」两个子项，
+/// 点击空白或主按钮收起。
+class _SpeedDial extends StatefulWidget {
+  const _SpeedDial({
+    required this.color,
+    required this.onAddNote,
+    required this.onAddFolder,
+  });
+
+  final Color color;
+  final VoidCallback onAddNote;
+  final VoidCallback onAddFolder;
+
+  @override
+  State<_SpeedDial> createState() => _SpeedDialState();
+}
+
+class _SpeedDialState extends State<_SpeedDial> {
+  bool _open = false;
+
+  void _toggle() {
+    setState(() => _open = !_open);
+  }
+
+  void _run(VoidCallback action) {
+    setState(() => _open = false);
+    action();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final color = widget.color;
+    final onColor = color.computeLuminance() > 0.5
+        ? Colors.black
+        : Colors.white;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (_open) ...[
+          _dialItem(
+            icon: Icons.create_outlined,
+            label: '新建文章',
+            color: color,
+            onColor: onColor,
+            onTap: () => _run(widget.onAddNote),
+          ),
+          const SizedBox(height: 12),
+          _dialItem(
+            icon: Icons.create_new_folder_outlined,
+            label: '新建文件夹',
+            color: color,
+            onColor: onColor,
+            onTap: () => _run(widget.onAddFolder),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _mainButton(color: color, onColor: onColor),
+      ],
+    );
+  }
+
+  Widget _dialItem({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required Color onColor,
+    required VoidCallback onTap,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Card(
+          elevation: 2,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Text(label, style: const TextStyle(fontSize: 13)),
+          ),
+        ),
+        const SizedBox(width: 8),
+        FloatingActionButton.small(
+          heroTag: 'dial_$label',
+          backgroundColor: color,
+          foregroundColor: onColor,
+          onPressed: onTap,
+          child: Icon(icon),
+        ),
+      ],
+    );
+  }
+
+  Widget _mainButton({required Color color, required Color onColor}) {
+    return FloatingActionButton(
+      heroTag: 'dial_main',
+      onPressed: _toggle,
+      child: Icon(_open ? Icons.close : Icons.add),
     );
   }
 }

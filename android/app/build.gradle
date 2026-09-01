@@ -28,6 +28,13 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        // 分架构编译：只打包主流真机 ABI，避免把 x86/x86_64 塞进同一个安装包导致体积膨胀。
+        // 覆盖 arm64 与 armeabi 可兼容绝大多数当前在售手机。
+        // 如需更精细的多包发布，可用 `flutter build apk --split-per-abi` 生成按 ABI 拆分的安装包。
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
     }
 
     buildTypes {

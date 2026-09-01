@@ -39,15 +39,27 @@ class NoteProvider extends ChangeNotifier {
   bool _loading = false;
   bool get loading => _loading;
 
+  String? _error;
+  String? get error => _error;
+
   /// 加载某个层级的内容。
+  ///
+  /// 使用 [try]/[finally] 确保加载完成后必定复位 loading 状态，
+  /// 避免首次开库/建表失败时界面永久停留在「加载中」。
   Future<void> loadFolder(String? parentId) async {
     _currentParentId = parentId;
     _loading = true;
+    _error = null;
     notifyListeners();
-    _nodes = await _dao.childrenOf(parentId: parentId);
-    exitSelection();
-    _loading = false;
-    notifyListeners();
+    try {
+      _nodes = await _dao.childrenOf(parentId: parentId);
+    } catch (e) {
+      _error = '$e';
+    } finally {
+      exitSelection();
+      _loading = false;
+      notifyListeners();
+    }
   }
 
   /// 记录返回栈，用于「返回上层」。
