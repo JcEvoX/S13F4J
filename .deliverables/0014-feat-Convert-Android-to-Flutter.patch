@@ -1,0 +1,2689 @@
+From 87b086862623f3422142ba66b63d5311a01c81d9 Mon Sep 17 00:00:00 2001
+From: JcEvoX <JcEvoX@users.noreply.github.com>
+Date: Tue, 1 Sep 2026 00:43:38 +0000
+Subject: [PATCH 14/18] feat: Convert Android to Flutter
+
+Co-authored-by: traeagent <traeagent@users.noreply.github.com>
+---
+ lib/data/note_dao.dart                        | 106 +++++
+ lib/main.dart                                 |   4 +
+ lib/services/backup_service.dart              | 158 ++++++++
+ lib/services/settings_service.dart            |  42 ++
+ lib/theme/wallpapers.dart                     | 142 +++++++
+ lib/ui/backuprestore/backup_restore_page.dart | 233 +++++++++++
+ lib/ui/editor/editor_page.dart                |   5 +-
+ lib/ui/home/home_page.dart                    |   5 +-
+ lib/ui/preview/markdown_helper_page.dart      |  50 +++
+ .../markdown_preview_settings_page.dart       |  69 ++++
+ lib/ui/recent/recent_page.dart                |  85 ++++
+ lib/ui/settings/settings_page.dart            |  63 ++-
+ lib/ui/statistics/statistics_page.dart        | 153 +++++++
+ lib/ui/theme/editor_font_page.dart            | 142 +++++++
+ lib/ui/theme/wallpaper_page.dart              | 118 ++++++
+ lib/widgets/wallpaper_background.dart         |  53 +++
+ pubspec.lock                                  | 380 +++++++++---------
+ 17 files changed, 1603 insertions(+), 205 deletions(-)
+ create mode 100644 lib/services/backup_service.dart
+ create mode 100644 lib/theme/wallpapers.dart
+ create mode 100644 lib/ui/backuprestore/backup_restore_page.dart
+ create mode 100644 lib/ui/preview/markdown_helper_page.dart
+ create mode 100644 lib/ui/preview/markdown_preview_settings_page.dart
+ create mode 100644 lib/ui/recent/recent_page.dart
+ create mode 100644 lib/ui/statistics/statistics_page.dart
+ create mode 100644 lib/ui/theme/editor_font_page.dart
+ create mode 100644 lib/ui/theme/wallpaper_page.dart
+ create mode 100644 lib/widgets/wallpaper_background.dart
+
+diff --git a/lib/data/note_dao.dart b/lib/data/note_dao.dart
+index 9ec6ab2..721af35 100644
+--- a/lib/data/note_dao.dart
++++ b/lib/data/note_dao.dart
+@@ -212,4 +212,110 @@ class NoteDao {
+     );
+     return rows.map(NotePadNode.fromMap).toList();
+   }
++
++  // ---- 最近 / 统计 / 备份 ----
++
++  /// 最近编辑的文章（仅未回收的文章节点，按更新时间倒序）。
++  Future<List<NotePadNode>> recentArticles({int limit = 50}) async {
++    final db = await AppDatabase.instance;
++    final rows = await db.query(
++      AppDatabase.tableNode,
++      where: 'is_folder = 0 AND is_recycled = 0',
++      orderBy: 'updated_at DESC',
++      limit: limit,
++    );
++    return rows.map(NotePadNode.fromMap).toList();
++  }
++
++  /// 读取全部节点（含回收站，导出备份用）。
++  Future<List<NotePadNode>> allNodes() async {
++    final db = await AppDatabase.instance;
++    final rows = await db.query(AppDatabase.tableNode);
++    return rows.map(NotePadNode.fromMap).toList();
++  }
++
++  /// 统计信息汇总。
++  Future<NoteStatistics> statistics() async {
++    final db = await AppDatabase.instance;
++    final rows = await db.query(AppDatabase.tableNode);
++    var folders = 0;
++    var articles = 0;
++    var words = 0;
++    var recycled = 0;
++    var lastEdited = 0;
++    for (final r in rows) {
++      final n = NotePadNode.fromMap(r);
++      if (n.isRecycled) {
++        recycled++;
++        continue;
++      }
++      if (n.isFolder) {
++        folders++;
++      } else {
++        articles++;
++        words += _countWords(n.content);
++      }
++      if (n.updatedAt > lastEdited) lastEdited = n.updatedAt;
++    }
++    return NoteStatistics(
++      folders: folders,
++      articles: articles,
++      words: words,
++      recycled: recycled,
++      lastEditedAt: lastEdited,
++    );
++  }
++
++  /// 统计字数（与编辑器一致：中文字符 + 英文单词）。
++  int _countWords(String text) {
++    final cn = RegExp(r'[\u4e00-\u9fa5]').allMatches(text).length;
++    final en = text
++        .replaceAll(RegExp(r'[\u4e00-\u9fa5]'), ' ')
++        .trim()
++        .split(RegExp(r'\s+'))
++        .where((w) => w.isNotEmpty)
++        .length;
++    return cn + en;
++  }
++
++  /// 恢复备份：清空现有数据并整库写入（事务内完成）。
++  Future<void> replaceAll(List<NotePadNode> nodes) async {
++    final db = await AppDatabase.instance;
++    await db.transaction((txn) async {
++      await txn.delete(AppDatabase.tableNode);
++      for (final n in nodes) {
++        await txn.insert(
++          AppDatabase.tableNode,
++          n.toMap(),
++          conflictAlgorithm: ConflictAlgorithm.replace,
++        );
++      }
++    });
++  }
++}
++
++/// 统计结果。
++class NoteStatistics {
++  const NoteStatistics({
++    required this.folders,
++    required this.articles,
++    required this.words,
++    required this.recycled,
++    required this.lastEditedAt,
++  });
++
++  /// 文件夹数量。
++  final int folders;
++
++  /// 文章数量。
++  final int articles;
++
++  /// 总字数。
++  final int words;
++
++  /// 回收站节点数量。
++  final int recycled;
++
++  /// 最近编辑时间（毫秒，0 表示无数据）。
++  final int lastEditedAt;
+ }
+\ No newline at end of file
+diff --git a/lib/main.dart b/lib/main.dart
+index 3357449..40df34b 100644
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -1,12 +1,16 @@
+ import 'package:flutter/material.dart';
+ import 'package:provider/provider.dart';
+ 
++import 'services/backup_service.dart';
+ import 'state/note_provider.dart';
+ import 'theme/app_theme.dart';
+ import 'theme/theme_controller.dart';
+ import 'ui/home/home_page.dart';
+ 
+ void main() {
++  WidgetsFlutterBinding.ensureInitialized();
++  // 启动周期自动备份（应用运行期间）。
++  AutoBackupService.instance.start();
+   runApp(const NotePadApp());
+ }
+ 
+diff --git a/lib/services/backup_service.dart b/lib/services/backup_service.dart
+new file mode 100644
+index 0000000..3c00164
+--- /dev/null
++++ b/lib/services/backup_service.dart
+@@ -0,0 +1,158 @@
++import 'dart:async';
++import 'dart:convert';
++import 'dart:io';
++
++import 'package:file_selector/file_selector.dart';
++import 'package:shared_preferences/shared_preferences.dart';
++
++import '../data/note_dao.dart';
++import '../models/note.dart';
++import 'settings_service.dart';
++import 'webdav_service.dart';
++
++/// 备份文件格式版本。
++const int kBackupFormatVersion = 1;
++
++/// 备份与恢复服务。
++///
++/// 对应原 Android 端「备份和恢复」能力：
++/// - 本地：通过 SAF 选择文件夹，将全部节点（含回收站）导出为 JSON；
++/// - WebDAV：上传 / 下载到用户自建的 WebDAV 服务器。
++///
++/// 跨平台统一使用 `file_selector`（移动 / 桌面通用），桌面端同样可用
++/// 文件夹选择器，从而在 Android / iOS / 桌面三端保持一致。
++class BackupService {
++  BackupService._();
++
++  /// 生成备份文件名：SaltNote-yyyyMMdd-HHmmss.json。
++  static String backupFileName([DateTime? t]) {
++    final now = t ?? DateTime.now();
++    String two(int v) => v.toString().padLeft(2, '0');
++    return 'SaltNote-${now.year}${two(now.month)}${two(now.day)}-'
++        '${two(now.hour)}${two(now.minute)}${two(now.second)}.json';
++  }
++
++  /// 将节点树序列化为备份 JSON（含应用标识与版本号）。
++  static String encodeBackup(List<NotePadNode> nodes) {
++    return jsonEncode({
++      'app': 'salt_note',
++      'format': kBackupFormatVersion,
++      'exported_at': DateTime.now().millisecondsSinceEpoch,
++      'nodes': nodes.map((n) => n.toMap()).toList(),
++    });
++  }
++
++  /// 解析备份 JSON 为节点列表。
++  ///
++  /// 兼容两种格式：本应用导出的包装格式，以及直接节点数组。
++  static List<NotePadNode> decodeBackup(String raw) {
++    final decoded = jsonDecode(raw);
++    List<dynamic> list;
++    if (decoded is List) {
++      list = decoded;
++    } else if (decoded is Map && decoded['nodes'] is List) {
++      list = decoded['nodes'] as List;
++    } else {
++      throw const FormatException('备份文件格式不正确');
++    }
++    return list
++        .map((e) => NotePadNode.fromMap(Map<String, Object?>.from(e as Map)))
++        .toList();
++  }
++
++  /// 备份到本地文件夹，返回生成的文件名。
++  static Future<String?> backupToDirectory(
++    String dirPath,
++    List<NotePadNode> nodes,
++  ) async {
++    final dir = Directory(dirPath);
++    if (!await dir.exists()) throw const FileSystemException('备份文件夹不存在');
++    final name = backupFileName();
++    final file = File('${dir.path}${Platform.pathSeparator}$name');
++    await file.writeAsString(encodeBackup(nodes), flush: true);
++    return name;
++  }
++
++  /// 读取备份文件并解析为节点列表。
++  static Future<List<NotePadNode>> readBackupFile(String filePath) async {
++    final file = File(filePath);
++    final raw = await file.readAsString();
++    return decodeBackup(raw);
++  }
++
++  /// 弹窗选择备份文件夹（返回 null 表示取消）。
++  static Future<String?> pickBackupDirectory() {
++    return getDirectoryPath(confirmButtonText: '选择此文件夹');
++  }
++}
++
++/// 自动备份调度器。
++///
++/// 原 Android 端基于 WorkManager 在系统后台周期执行；Flutter 端为
++/// 「桌面适配预留」实现：应用运行期间周期触发（默认 30 分钟），
++/// 若后续接入 `workmanager` 插件即可无缝升级为系统级后台任务。
++class AutoBackupService {
++  AutoBackupService._();
++
++  static final AutoBackupService instance = AutoBackupService._();
++
++  Timer? _timer;
++  bool _running = false;
++
++  bool get running => _running;
++
++  /// 启动周期自动备份。
++  void start({Duration interval = const Duration(minutes: 30)}) {
++    if (_running) return;
++    _running = true;
++    _timer = Timer.periodic(interval, (_) => run());
++  }
++
++  void stop() {
++    _timer?.cancel();
++    _timer = null;
++    _running = false;
++  }
++
++  /// 立即执行一次自动备份（本地 + WebDAV，按配置决定）。
++  Future<void> run() async {
++    final settings = await SettingsService.instance;
++    final nodes = await NoteDao().allNodes();
++
++    if (settings.autoBackupLocal) {
++      final dir = settings.backupFolder;
++      if (dir != null && await Directory(dir).exists()) {
++        try {
++          await BackupService.backupToDirectory(dir, nodes);
++        } catch (_) {
++          // 本地自动备份失败不打断流程
++        }
++      }
++    }
++
++    if (settings.autoBackupToWebdav) {
++      try {
++        final svc = await _webdavFromPrefs();
++        if (svc != null) {
++          final name = BackupService.backupFileName();
++          await svc.uploadText(name, BackupService.encodeBackup(nodes));
++          svc.close();
++        }
++      } catch (_) {
++        // WebDAV 自动备份失败（离线 / 未配置）静默处理
++      }
++    }
++  }
++
++  /// 从已保存的偏好读取 WebDAV 配置；未配置返回 null。
++  static Future<WebDavService?> _webdavFromPrefs() async {
++    final prefs = await SharedPreferences.getInstance();
++    final raw = prefs.getString('webdav_config');
++    if (raw == null || raw.isEmpty) return null;
++    final parts = raw.split('\u0001');
++    if (parts.length < 3) return null;
++    return WebDavService.connect(
++      WebDavConfig(url: parts[0], username: parts[1], password: parts[2]),
++    );
++  }
++}
+diff --git a/lib/services/settings_service.dart b/lib/services/settings_service.dart
+index b461366..5c1b875 100644
+--- a/lib/services/settings_service.dart
++++ b/lib/services/settings_service.dart
+@@ -18,11 +18,16 @@ class SettingsService {
+ 
+   static const _kThemeMode = 'pref_theme_mode';
+   static const _kEditorFontSize = 'pref_editor_font_size';
++  static const _kEditorFontFamily = 'pref_editor_font_family';
+   static const _kScaleEditorFont = 'pref_editor_scale_font';
+   static const _kAutoFirstLineIndent = 'pref_auto_first_line_indent';
+   static const _kStartPage = 'pref_start_page';
+   static const _kWallpaper = 'pref_wallpaper_path';
+   static const _kBackupFolder = 'pref_backup_folder_path';
++  static const _kBackupFolderName = 'pref_backup_folder_name';
++  static const _kAutoBackupLocal = 'pref_auto_backup_local';
++  static const _kAutoBackupWebdav = 'pref_auto_backup_to_webdav';
++  static const _kMarkdownParseHtml = 'pref_markdown_parse_html';
+   static const _kWordCount = 'pref_show_word_count';
+ 
+   static SettingsService? _instance;
+@@ -50,6 +55,17 @@ class SettingsService {
+   Future<void> setEditorFontSize(double v) =>
+       _prefs.setDouble(_kEditorFontSize, v);
+ 
++  /// 编辑器字体族（'system' 表示跟随系统）。
++  String get editorFontFamily => _prefs.getString(_kEditorFontFamily) ?? 'system';
++
++  Future<void> setEditorFontFamily(String v) =>
++      _prefs.setString(_kEditorFontFamily, v);
++
++  Future<void> resetEditorFont() async {
++    await setEditorFontFamily('system');
++    await setEditorFontSize(17.0);
++  }
++
+   bool get scaleEditorFont => _prefs.getBool(_kScaleEditorFont) ?? true;
+ 
+   Future<void> setScaleEditorFont(bool v) =>
+@@ -84,6 +100,32 @@ class SettingsService {
+     return _prefs.setString(_kBackupFolder, path);
+   }
+ 
++  /// 备份文件夹显示名（用户选择的目录名，便于界面展示）。
++  String? get backupFolderName => _prefs.getString(_kBackupFolderName);
++
++  Future<void> setBackupFolderName(String? name) {
++    if (name == null) return _prefs.remove(_kBackupFolderName);
++    return _prefs.setString(_kBackupFolderName, name);
++  }
++
++  /// 自动备份到本地文件夹。
++  bool get autoBackupLocal => _prefs.getBool(_kAutoBackupLocal) ?? false;
++
++  Future<void> setAutoBackupLocal(bool v) =>
++      _prefs.setBool(_kAutoBackupLocal, v);
++
++  /// 自动备份到 WebDAV。
++  bool get autoBackupToWebdav => _prefs.getBool(_kAutoBackupWebdav) ?? true;
++
++  Future<void> setAutoBackupToWebdav(bool v) =>
++      _prefs.setBool(_kAutoBackupWebdav, v);
++
++  /// Markdown 预览是否解析内嵌 HTML。
++  bool get markdownParseHtml => _prefs.getBool(_kMarkdownParseHtml) ?? true;
++
++  Future<void> setMarkdownParseHtml(bool v) =>
++      _prefs.setBool(_kMarkdownParseHtml, v);
++
+   bool get showWordCount => _prefs.getBool(_kWordCount) ?? true;
+ 
+   Future<void> setShowWordCount(bool v) => _prefs.setBool(_kWordCount, v);
+diff --git a/lib/theme/wallpapers.dart b/lib/theme/wallpapers.dart
+new file mode 100644
+index 0000000..4e455b3
+--- /dev/null
++++ b/lib/theme/wallpapers.dart
+@@ -0,0 +1,142 @@
++import 'dart:ui';
++
++/// 壁纸选项。
++///
++/// 对应原 Android 端 WallpaperUI 的壁纸列表：
++/// 纯色壁纸（跟随系统 / 默认白 / 默认黑 / 原木 / 纯白 / 纯黑）
++/// 与网络图片壁纸（浆纸 / 牛皮纸 / 斑驳 / 大理石 / 云霭 / 沙滩 / 层峦）。
++class WallpaperOption {
++  const WallpaperOption({
++    required this.key,
++    required this.title,
++    this.subtitle,
++    this.colorValue,
++    this.imageUrl,
++    this.isDark = false,
++  });
++
++  /// 存储键（写入设置）。
++  final String key;
++
++  /// 显示名称。
++  final String title;
++
++  /// 副标题说明。
++  final String? subtitle;
++
++  /// 纯色壁纸（ARGB 值）。
++  final int? colorValue;
++
++  /// 网络图片壁纸地址。
++  final String? imageUrl;
++
++  /// 是否为深色壁纸（决定前景文字颜色）。
++  final bool isDark;
++
++  bool get isColor => imageUrl == null;
++
++  Color? get color => colorValue == null ? null : Color(colorValue!);
++
++  /// 选中当前壁纸时的默认选中样式。
++  bool get isFollowSystem => key == 'DayNight';
++}
++
++/// 全部壁纸（顺序与原 Android 端一致）。
++const List<WallpaperOption> kWallpapers = [
++  WallpaperOption(
++    key: 'DayNight',
++    title: '跟随系统',
++    subtitle: 'DayNight',
++    colorValue: 0xFFF5F6F8,
++  ),
++  WallpaperOption(
++    key: 'Day',
++    title: '默认白',
++    subtitle: 'Day',
++    colorValue: 0xFFF5F6F8,
++  ),
++  WallpaperOption(
++    key: 'Night',
++    title: '默认黑',
++    subtitle: 'Night',
++    colorValue: 0xFF141414,
++    isDark: true,
++  ),
++  WallpaperOption(
++    key: 'wood',
++    title: '原木',
++    subtitle: '朴实无华',
++    colorValue: 0xFFFFF5E4,
++  ),
++  WallpaperOption(
++    key: 'paper',
++    title: '浆纸',
++    subtitle: '磨砂质感，经典之作',
++    imageUrl:
++        'https://images.unsplash.com/photo-1604147706283-d7119b5b822c?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'kraft',
++    title: '牛皮纸',
++    subtitle: '平整光滑，复古自然',
++    imageUrl:
++        'https://images.unsplash.com/photo-1615800098799-0ccb261b1f92?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'mottled',
++    title: '斑驳',
++    subtitle: '时光婆娑，岁月斑驳',
++    imageUrl:
++        'https://images.unsplash.com/photo-1555181937-efe4e074a301?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'marble',
++    title: '大理石',
++    subtitle: '被禁锢的天使',
++    imageUrl:
++        'https://images.unsplash.com/photo-1566305977571-5666677c6e98?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'cloud',
++    title: '云霭',
++    subtitle: '如坠云霄之中',
++    imageUrl:
++        'https://images.unsplash.com/photo-1612178537253-bccd437b730e?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'beach',
++    title: '沙滩',
++    subtitle: '玫瑰色的海岸',
++    imageUrl:
++        'https://images.unsplash.com/photo-1612293025896-7200cc87e540?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'mountain',
++    title: '层峦',
++    subtitle: '画阁层峦，雨余烟簇',
++    imageUrl:
++        'https://images.unsplash.com/photo-1551376347-075b0121a65b?auto=format&fit=crop&w=800&q=60',
++  ),
++  WallpaperOption(
++    key: 'white',
++    title: '纯白',
++    subtitle: 'WHITE',
++    colorValue: 0xFFFFFFFF,
++  ),
++  WallpaperOption(
++    key: 'oled',
++    title: '纯黑',
++    subtitle: 'OLED',
++    colorValue: 0xFF000000,
++    isDark: true,
++  ),
++];
++
++/// 根据存储键查找壁纸；未找到或为 DayNight 返回 null（跟随系统）。
++WallpaperOption? wallpaperByKey(String? key) {
++  if (key == null || key.isEmpty || key == 'DayNight') return null;
++  for (final w in kWallpapers) {
++    if (w.key == key) return w;
++  }
++  return null;
++}
+diff --git a/lib/ui/backuprestore/backup_restore_page.dart b/lib/ui/backuprestore/backup_restore_page.dart
+new file mode 100644
+index 0000000..1024454
+--- /dev/null
++++ b/lib/ui/backuprestore/backup_restore_page.dart
+@@ -0,0 +1,233 @@
++import 'package:file_selector/file_selector.dart';
++import 'package:flutter/material.dart';
++import 'package:provider/provider.dart';
++
++import '../../data/note_dao.dart';
++import '../../models/note.dart';
++import '../../services/backup_service.dart';
++import '../../services/settings_service.dart';
++import '../../state/note_provider.dart';
++import '../webdav/webdav_page.dart';
++
++/// 备份和恢复页。
++///
++/// 对应原 Android 端的「备份和恢复」：
++/// - 选择椒盐笔记本地文件夹（用于自动备份）；
++/// - 手动「备份到本地」与「恢复备份」；
++/// - 自动备份到本地 / WebDAV 开关。
++class BackupRestorePage extends StatefulWidget {
++  const BackupRestorePage({super.key});
++
++  @override
++  State<BackupRestorePage> createState() => _BackupRestorePageState();
++}
++
++class _BackupRestorePageState extends State<BackupRestorePage> {
++  SettingsService? _settings;
++  bool _busy = false;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() => _settings = s);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final s = _settings;
++    return Scaffold(
++      appBar: AppBar(title: const Text('备份和恢复')),
++      body: s == null
++          ? const Center(child: CircularProgressIndicator())
++          : ListView(
++              padding: const EdgeInsets.all(16),
++              children: [
++                _folderStatusCard(s),
++                const SizedBox(height: 16),
++                ListTile(
++                  leading: const Icon(Icons.folder_open),
++                  title: const Text('椒盐笔记文件夹'),
++                  subtitle: Text(
++                    s.backupFolderName ??
++                        s.backupFolder ??
++                        '未选择（这将影响自动备份功能）',
++                    maxLines: 1,
++                    overflow: TextOverflow.ellipsis,
++                  ),
++                  trailing: const Icon(Icons.chevron_right),
++                  onTap: () => _pickFolder(s),
++                ),
++                const Divider(),
++                SwitchListTile(
++                  secondary: const Icon(Icons.schedule),
++                  title: const Text('自动备份'),
++                  subtitle: const Text('周期将数据备份到本地文件夹'),
++                  value: s.autoBackupLocal,
++                  onChanged: (v) {
++                    s.setAutoBackupLocal(v);
++                    setState(() {});
++                  },
++                ),
++                SwitchListTile(
++                  secondary: const Icon(Icons.cloud_upload_outlined),
++                  title: const Text('自动备份到 WebDAV'),
++                  value: s.autoBackupToWebdav,
++                  onChanged: (v) {
++                    s.setAutoBackupToWebdav(v);
++                    setState(() {});
++                  },
++                ),
++                const Divider(),
++                _actionTile(
++                  icon: Icons.save_alt,
++                  title: '备份到本地',
++                  onTap: () => _backupToLocal(s),
++                ),
++                _actionTile(
++                  icon: Icons.cloud_upload,
++                  title: '备份到 WebDAV',
++                  onTap: () => Navigator.push(
++                    context,
++                    MaterialPageRoute(builder: (_) => const WebDavPage()),
++                  ),
++                ),
++                _actionTile(
++                  icon: Icons.restore,
++                  title: '恢复备份',
++                  onTap: () => _restore(),
++                ),
++                if (_busy)
++                  const Padding(
++                    padding: EdgeInsets.all(16),
++                    child: Center(child: CircularProgressIndicator()),
++                  ),
++              ],
++            ),
++    );
++  }
++
++  Widget _folderStatusCard(SettingsService s) {
++    final folderSet = s.backupFolder != null;
++    final color = folderSet ? const Color(0xFF50D18D) : const Color(0xFFE74C3C);
++    final text = folderSet
++        ? '自动备份已生效，将自动备份数据到本地文件夹'
++        : '还未选择椒盐笔记文件夹，这将影响到自动备份功能';
++    return Card(
++      elevation: 0,
++      color: color.withOpacity(0.1),
++      child: ListTile(
++        leading: Icon(
++          folderSet ? Icons.check_circle : Icons.warning_amber,
++          color: color,
++        ),
++        title: Text(text, style: TextStyle(color: color, fontSize: 14)),
++      ),
++    );
++  }
++
++  Widget _actionTile({
++    required IconData icon,
++    required String title,
++    required VoidCallback onTap,
++  }) {
++    return ListTile(
++      leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
++      title: Text(title),
++      trailing: const Icon(Icons.chevron_right),
++      onTap: onTap,
++    );
++  }
++
++  /// 选择本地备份文件夹。
++  Future<void> _pickFolder(SettingsService s) async {
++    final dir = await BackupService.pickBackupDirectory();
++    if (dir == null) return;
++    await s.setBackupFolder(dir);
++    await s.setBackupFolderName(dir.split(RegExp(r'[/\\]')).last);
++    if (mounted) setState(() {});
++  }
++
++  /// 手动备份到本地（选择目录写入 JSON）。
++  Future<void> _backupToLocal(SettingsService s) async {
++    if (_busy) return;
++    setState(() => _busy = true);
++    try {
++      final dir = await BackupService.pickBackupDirectory() ?? s.backupFolder;
++      if (dir == null) {
++        _toast('请先选择备份文件夹');
++        return;
++      }
++      final nodes = await NoteDao().allNodes();
++      final name = await BackupService.backupToDirectory(dir, nodes);
++      _toast(name == null ? '备份已取消' : '备份成功：$name');
++    } catch (e) {
++      _toast('备份失败：$e');
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  /// 从本地备份文件恢复（覆盖当前数据）。
++  Future<void> _restore() async {
++    if (_busy) return;
++    final file = await openFile(
++      acceptedTypeGroups: const [
++        XTypeGroup(label: '备份文件', extensions: ['json']),
++      ],
++    );
++    if (file == null) return;
++    if (!mounted) return;
++
++    List<NotePadNode> nodes;
++    try {
++      nodes = await BackupService.readBackupFile(file.path);
++    } catch (e) {
++      _toast('备份文件解析失败：$e');
++      return;
++    }
++    if (!mounted) return;
++    final ok = await showDialog<bool>(
++      context: context,
++      builder: (ctx) => AlertDialog(
++        title: const Text('恢复备份'),
++        content: Text('确定用「${file.name}」恢复吗？将覆盖本地全部笔记数据。'),
++        actions: [
++          TextButton(
++            onPressed: () => Navigator.pop(ctx, false),
++            child: const Text('取消'),
++          ),
++          FilledButton(
++            onPressed: () => Navigator.pop(ctx, true),
++            child: const Text('恢复'),
++          ),
++        ],
++      ),
++    );
++    if (ok != true) return;
++
++    setState(() => _busy = true);
++    try {
++      final dao = NoteDao();
++      await dao.replaceAll(nodes);
++      if (!mounted) return;
++      await context.read<NoteProvider>().refresh();
++      await context.read<NoteProvider>().loadRecycleBin();
++      _toast('恢复成功');
++    } catch (e) {
++      _toast('恢复失败：$e');
++    } finally {
++      if (mounted) setState(() => _busy = false);
++    }
++  }
++
++  void _toast(String msg) {
++    if (!mounted) return;
++    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
++  }
++}
+diff --git a/lib/ui/editor/editor_page.dart b/lib/ui/editor/editor_page.dart
+index 96ebec3..e645553 100644
+--- a/lib/ui/editor/editor_page.dart
++++ b/lib/ui/editor/editor_page.dart
+@@ -126,6 +126,9 @@ class _EditorPageState extends State<EditorPage> {
+     }
+     final settings = _settings!;
+     final fontSize = settings.scaleEditorFont ? settings.editorFontSize : 17.0;
++    final fontFamily = settings.editorFontFamily == 'system'
++        ? null
++        : settings.editorFontFamily;
+ 
+     return Scaffold(
+       appBar: AppBar(
+@@ -166,7 +169,7 @@ class _EditorPageState extends State<EditorPage> {
+                 focusNode: _focus,
+                 maxLines: null,
+                 keyboardType: TextInputType.multiline,
+-                style: TextStyle(fontSize: fontSize, height: 1.7),
++                style: TextStyle(fontSize: fontSize, height: 1.7, fontFamily: fontFamily),
+                 decoration: const InputDecoration(
+                   border: InputBorder.none,
+                   hintText: '开始书写，半角 # 表示标题…',
+diff --git a/lib/ui/home/home_page.dart b/lib/ui/home/home_page.dart
+index baebd27..6e4b6af 100644
+--- a/lib/ui/home/home_page.dart
++++ b/lib/ui/home/home_page.dart
+@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
+ import '../../models/note.dart';
+ import '../../state/note_provider.dart';
+ import '../../widgets/node_icon.dart';
++import '../../widgets/wallpaper_background.dart';
+ import '../editor/editor_page.dart';
+ import '../webdav/webdav_page.dart';
+ import '../recyclebin/recyclebin_page.dart';
+@@ -103,7 +104,9 @@ class _HomePageState extends State<HomePage> {
+               )
+             : null,
+       ),
+-      body: _buildBody(provider),
++      body: WallpaperBackground(
++        child: _buildBody(provider),
++      ),
+       floatingActionButton: provider.selectionMode
+           ? null
+           : FloatingActionButton(
+diff --git a/lib/ui/preview/markdown_helper_page.dart b/lib/ui/preview/markdown_helper_page.dart
+new file mode 100644
+index 0000000..36f39ae
+--- /dev/null
++++ b/lib/ui/preview/markdown_helper_page.dart
+@@ -0,0 +1,50 @@
++import 'package:flutter/material.dart';
++
++/// Markdown 助手页。
++///
++/// 对应原 Android 端的「Markdown 助手」，提供常用语法速查。
++class MarkdownHelperPage extends StatelessWidget {
++  const MarkdownHelperPage({super.key});
++
++  static const _entries = <(String, String)>[
++    ('# 一级标题', '行首 1~6 个 # 加空格表示标题'),
++    ('**加粗**', '两侧各两个星号为粗体'),
++    ('*斜体* 或 _斜体_', '两侧各一个星号或下划线为斜体'),
++    ('~~删除线~~', '两侧各两个波浪号为删除线'),
++    ('> 引用', '行首 > 加空格为引用块'),
++    ('`代码`', '反引号包裹行内代码'),
++    ('```代码块```', '三个反引号包裹多行代码块'),
++    ('- 列表项', '行首 -、* 或 + 为无序列表'),
++    ('1. 有序项', '数字加点加空格为有序列表'),
++    ('[文字](网址)', '方括号包文字，圆括号包链接地址'),
++    ('---', '三个及以上连字符为分割线'),
++    ('![描述](图片地址)', '感叹号加图片语法'),
++  ];
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('Markdown 助手')),
++      body: ListView.separated(
++        padding: const EdgeInsets.all(16),
++        itemCount: _entries.length,
++        separatorBuilder: (_, __) => const Divider(height: 1),
++        itemBuilder: (ctx, i) {
++          final (code, desc) = _entries[i];
++          return ListTile(
++            title: Text(
++              code,
++              style: TextStyle(
++                fontFamily: 'monospace',
++                color: Theme.of(context).colorScheme.primary,
++              ),
++            ),
++            subtitle: Text(desc,
++                style:
++                    TextStyle(fontSize: 13, color: Colors.grey.shade600)),
++          );
++        },
++      ),
++    );
++  }
++}
+diff --git a/lib/ui/preview/markdown_preview_settings_page.dart b/lib/ui/preview/markdown_preview_settings_page.dart
+new file mode 100644
+index 0000000..3b55bb9
+--- /dev/null
++++ b/lib/ui/preview/markdown_preview_settings_page.dart
+@@ -0,0 +1,69 @@
++import 'package:flutter/material.dart';
++
++import '../../services/settings_service.dart';
++import 'markdown_helper_page.dart';
++
++/// Markdown 预览设置页。
++///
++/// 对应原 Android 端的「Markdown 预览设置」：
++/// 是否解析内嵌 HTML，以及进入「Markdown 助手」语法速查。
++class MarkdownPreviewSettingsPage extends StatefulWidget {
++  const MarkdownPreviewSettingsPage({super.key});
++
++  @override
++  State<MarkdownPreviewSettingsPage> createState() =>
++      _MarkdownPreviewSettingsPageState();
++}
++
++class _MarkdownPreviewSettingsPageState extends State<MarkdownPreviewSettingsPage> {
++  SettingsService? _settings;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() => _settings = s);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final s = _settings;
++    return Scaffold(
++      appBar: AppBar(title: const Text('Markdown 预览设置')),
++      body: s == null
++          ? const Center(child: CircularProgressIndicator())
++          : ListView(
++              children: [
++                SwitchListTile(
++                  secondary: const Icon(Icons.code),
++                  title: const Text('解析内嵌 HTML'),
++                  subtitle: const Text('预览时渲染正文中的 HTML 标签'),
++                  value: s.markdownParseHtml,
++                  onChanged: (v) {
++                    s.setMarkdownParseHtml(v);
++                    setState(() {});
++                  },
++                ),
++                const Divider(),
++                ListTile(
++                  leading: const Icon(Icons.help_outline),
++                  title: const Text('Markdown 助手'),
++                  subtitle: const Text('常用 Markdown 语法速查'),
++                  trailing: const Icon(Icons.chevron_right),
++                  onTap: () => Navigator.push(
++                    context,
++                    MaterialPageRoute(
++                      builder: (_) => const MarkdownHelperPage(),
++                    ),
++                  ),
++                ),
++              ],
++            ),
++    );
++  }
++}
+diff --git a/lib/ui/recent/recent_page.dart b/lib/ui/recent/recent_page.dart
+new file mode 100644
+index 0000000..b5627d6
+--- /dev/null
++++ b/lib/ui/recent/recent_page.dart
+@@ -0,0 +1,85 @@
++import 'package:flutter/material.dart';
++import 'package:intl/intl.dart';
++
++import '../../data/note_dao.dart';
++import '../../models/note.dart';
++import '../editor/editor_page.dart';
++
++/// 最近编辑的文章页。
++///
++/// 对应原 Android 端的「最近编辑的文章」，按更新时间倒序展示
++/// 未回收的文章，点击进入编辑器。
++class RecentPage extends StatefulWidget {
++  const RecentPage({super.key});
++
++  @override
++  State<RecentPage> createState() => _RecentPageState();
++}
++
++class _RecentPageState extends State<RecentPage> {
++  List<NotePadNode> _items = const [];
++  bool _loading = true;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final items = await NoteDao().recentArticles();
++    if (!mounted) return;
++    setState(() {
++      _items = items;
++      _loading = false;
++    });
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('最近编辑的文章')),
++      body: _loading
++          ? const Center(child: CircularProgressIndicator())
++          : _items.isEmpty
++              ? const Center(child: Text('暂无最近编辑的文章'))
++              : RefreshIndicator(
++                  onRefresh: _load,
++                  child: ListView.separated(
++                    itemCount: _items.length,
++                    separatorBuilder: (_, __) => const Divider(height: 1),
++                    itemBuilder: (ctx, i) => _buildTile(ctx, _items[i]),
++                  ),
++                ),
++    );
++  }
++
++  Widget _buildTile(BuildContext context, NotePadNode node) {
++    final time = DateFormat('MM-dd HH:mm')
++        .format(DateTime.fromMillisecondsSinceEpoch(node.updatedAt));
++    final preview = node.content.trim().split('\n').first;
++    return ListTile(
++      leading: const Icon(Icons.description_outlined),
++      title: Text(
++        node.title.isEmpty ? '未命名文章' : node.title,
++        maxLines: 1,
++        overflow: TextOverflow.ellipsis,
++      ),
++      subtitle: preview.isEmpty
++          ? Text('更新于 $time',
++              style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
++          : Text(
++              preview,
++              maxLines: 1,
++              overflow: TextOverflow.ellipsis,
++              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
++            ),
++      trailing: Text(time,
++          style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
++      onTap: () => Navigator.push(
++        context,
++        MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
++      ),
++    );
++  }
++}
+diff --git a/lib/ui/settings/settings_page.dart b/lib/ui/settings/settings_page.dart
+index a6288c8..11e343c 100644
+--- a/lib/ui/settings/settings_page.dart
++++ b/lib/ui/settings/settings_page.dart
+@@ -3,7 +3,15 @@ import 'package:provider/provider.dart';
+ 
+ import '../../services/settings_service.dart';
+ import '../../theme/theme_controller.dart';
++import '../../theme/wallpapers.dart';
+ import '../about/about_page.dart';
++import '../backuprestore/backup_restore_page.dart';
++import '../preview/markdown_preview_settings_page.dart';
++import '../recent/recent_page.dart';
++import '../statistics/statistics_page.dart';
++import '../theme/editor_font_page.dart';
++import '../theme/wallpaper_page.dart';
++import '../webdav/webdav_page.dart';
+ 
+ /// 设置主页面。
+ ///
+@@ -43,20 +51,44 @@ class _SettingsPageState extends State<SettingsPage> {
+                 _buildThemeMode(s),
+                 ListTile(
+                   leading: const Icon(Icons.font_download_outlined),
+-                  title: const Text('编辑器字体与大小'),
+-                  onTap: () => _toast('字体设置（可在编辑器内调整字号）'),
++                  title: const Text('编辑器字体'),
++                  subtitle: Text('${s.editorFontSize.round()} 号'),
++                  onTap: () => _push(const EditorFontPage()),
+                 ),
+                 ListTile(
+                   leading: const Icon(Icons.wallpaper),
+                   title: const Text('壁纸'),
+-                  trailing: Switch(
+-                    value: s.wallpaper != null,
+-                    onChanged: (v) {
+-                      s.setWallpaper(v ? 'builtin' : null);
+-                      setState(() {});
+-                    },
++                  subtitle: Text(
++                    wallpaperByKey(s.wallpaper)?.title ?? '跟随系统',
+                   ),
+-                  onTap: () => _toast('壁纸设置（示例）'),
++                  onTap: () => _push(const WallpaperPage()),
++                ),
++                const Divider(),
++                _section('数据'),
++                ListTile(
++                  leading: const Icon(Icons.insert_chart_outlined),
++                  title: const Text('统计'),
++                  onTap: () => _push(const StatisticsPage()),
++                ),
++                ListTile(
++                  leading: const Icon(Icons.history),
++                  title: const Text('最近编辑的文章'),
++                  onTap: () => _push(const RecentPage()),
++                ),
++                ListTile(
++                  leading: const Icon(Icons.backup_outlined),
++                  title: const Text('备份和恢复'),
++                  subtitle: Text(
++                    s.autoBackupLocal || s.autoBackupToWebdav
++                        ? '自动备份已开启'
++                        : '未开启自动备份',
++                  ),
++                  onTap: () => _push(const BackupRestorePage()),
++                ),
++                ListTile(
++                  leading: const Icon(Icons.cloud_outlined),
++                  title: const Text('我的 WebDAV'),
++                  onTap: () => _push(const WebDavPage()),
+                 ),
+                 const Divider(),
+                 _section('编辑'),
+@@ -87,6 +119,11 @@ class _SettingsPageState extends State<SettingsPage> {
+                     setState(() {});
+                   },
+                 ),
++                ListTile(
++                  leading: const Icon(Icons.preview_outlined),
++                  title: const Text('Markdown 预览设置'),
++                  onTap: () => _push(const MarkdownPreviewSettingsPage()),
++                ),
+                 const Divider(),
+                 _section('启动'),
+                 ListTile(
+@@ -121,6 +158,10 @@ class _SettingsPageState extends State<SettingsPage> {
+         ),
+       );
+ 
++  void _push(Widget page) {
++    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
++  }
++
+   Widget _buildThemeMode(SettingsService s) {
+     final map = {
+       ThemeModeOption.system: '跟随系统',
+@@ -184,8 +225,4 @@ class _SettingsPageState extends State<SettingsPage> {
+       if (mounted) setState(() {});
+     }
+   }
+-
+-  void _toast(String msg) {
+-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+-  }
+ }
+\ No newline at end of file
+diff --git a/lib/ui/statistics/statistics_page.dart b/lib/ui/statistics/statistics_page.dart
+new file mode 100644
+index 0000000..4dca38a
+--- /dev/null
++++ b/lib/ui/statistics/statistics_page.dart
+@@ -0,0 +1,153 @@
++import 'package:flutter/material.dart';
++import 'package:intl/intl.dart';
++
++import '../../data/note_dao.dart';
++
++/// 统计页。
++///
++/// 对应原 Android 端的「统计」入口，展示文章数量、文件夹数量、
++/// 总字数、回收站数量与最近编辑时间等维度。
++class StatisticsPage extends StatefulWidget {
++  const StatisticsPage({super.key});
++
++  @override
++  State<StatisticsPage> createState() => _StatisticsPageState();
++}
++
++class _StatisticsPageState extends State<StatisticsPage> {
++  NoteStatistics? _stat;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final stat = await NoteDao().statistics();
++    if (!mounted) return;
++    setState(() => _stat = stat);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final stat = _stat;
++    return Scaffold(
++      appBar: AppBar(title: const Text('统计')),
++      body: stat == null
++          ? const Center(child: CircularProgressIndicator())
++          : ListView(
++              padding: const EdgeInsets.all(16),
++              children: [
++                _summaryCard(stat),
++                const SizedBox(height: 16),
++                _tile(
++                  icon: Icons.article_outlined,
++                  label: '文章数量',
++                  value: '${stat.articles}',
++                ),
++                _tile(
++                  icon: Icons.folder_outlined,
++                  label: '文件夹数量',
++                  value: '${stat.folders}',
++                ),
++                _tile(
++                  icon: Icons.numbers,
++                  label: '总字数',
++                  value: _formatCount(stat.words),
++                ),
++                _tile(
++                  icon: Icons.delete_outline,
++                  label: '回收站节点',
++                  value: '${stat.recycled}',
++                ),
++                _tile(
++                  icon: Icons.schedule,
++                  label: '最近编辑时间',
++                  value: stat.lastEditedAt == 0
++                      ? '暂无'
++                      : DateFormat('yyyy-MM-dd HH:mm')
++                          .format(DateTime.fromMillisecondsSinceEpoch(
++                              stat.lastEditedAt)),
++                ),
++              ],
++            ),
++    );
++  }
++
++  Widget _summaryCard(NoteStatistics stat) {
++    final scheme = Theme.of(context).colorScheme;
++    return Card(
++      elevation: 0,
++      color: scheme.primaryContainer.withOpacity(0.35),
++      child: Padding(
++        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
++        child: Row(
++          children: [
++            Expanded(
++              child: _statBlock(scheme, '文章', '${stat.articles}'),
++            ),
++            Container(
++              width: 1,
++              height: 40,
++              color: scheme.outlineVariant,
++            ),
++            Expanded(
++              child: _statBlock(scheme, '字数', _formatCount(stat.words)),
++            ),
++            Container(
++              width: 1,
++              height: 40,
++              color: scheme.outlineVariant,
++            ),
++            Expanded(
++              child: _statBlock(scheme, '文件夹', '${stat.folders}'),
++            ),
++          ],
++        ),
++      ),
++    );
++  }
++
++  Widget _statBlock(ColorScheme scheme, String label, String value) {
++    return Column(
++      children: [
++        Text(
++          value,
++          style: TextStyle(
++            fontSize: 24,
++            fontWeight: FontWeight.bold,
++            color: scheme.primary,
++          ),
++        ),
++        const SizedBox(height: 4),
++        Text(label, style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant)),
++      ],
++    );
++  }
++
++  Widget _tile({
++    required IconData icon,
++    required String label,
++    required String value,
++  }) {
++    return Card(
++      margin: const EdgeInsets.symmetric(vertical: 4),
++      child: ListTile(
++        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
++        title: Text(label),
++        trailing: Text(
++          value,
++          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
++        ),
++      ),
++    );
++  }
++
++  String _formatCount(int n) {
++    if (n >= 10000) {
++      return '${(n / 10000).toStringAsFixed(1)} 万';
++    }
++    return '$n';
++  }
++}
+diff --git a/lib/ui/theme/editor_font_page.dart b/lib/ui/theme/editor_font_page.dart
+new file mode 100644
+index 0000000..eab21d9
+--- /dev/null
++++ b/lib/ui/theme/editor_font_page.dart
+@@ -0,0 +1,142 @@
++import 'package:flutter/material.dart';
++
++import '../../services/settings_service.dart';
++
++/// 编辑器字体设置页。
++///
++/// 对应原 Android 端的「编辑器字体」：支持字体族选择、字号调整
++/// 与「恢复默认」。字号 / 字体写入设置，编辑器实时读取生效。
++class EditorFontPage extends StatefulWidget {
++  const EditorFontPage({super.key});
++
++  @override
++  State<EditorFontPage> createState() => _EditorFontPageState();
++}
++
++class _EditorFontPageState extends State<EditorFontPage> {
++  SettingsService? _settings;
++  double _size = 17;
++  String _family = 'system';
++
++  static const _families = <(String, String, String)>[
++    ('system', '系统默认', 'Roboto / SF Pro'),
++    ('serif', '衬线体', 'Serif'),
++    ('monospace', '等宽字体', 'Monospace'),
++    ('cursive', '手写体', 'Cursive'),
++  ];
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() {
++      _settings = s;
++      _size = s.editorFontSize;
++      _family = s.editorFontFamily;
++    });
++  }
++
++  Future<void> _saveSize(double v) async {
++    _size = v;
++    await _settings!.setEditorFontSize(v);
++  }
++
++  Future<void> _saveFamily(String v) async {
++    _family = v;
++    await _settings!.setEditorFontFamily(v);
++  }
++
++  Future<void> _reset() async {
++    await _settings!.resetEditorFont();
++    if (!mounted) return;
++    setState(() {
++      _size = 17;
++      _family = 'system';
++    });
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final s = _settings;
++    return Scaffold(
++      appBar: AppBar(
++        title: const Text('编辑器字体'),
++        actions: [
++          TextButton(
++            onPressed: s == null ? null : _reset,
++            child: const Text('恢复默认'),
++          ),
++        ],
++      ),
++      body: s == null
++          ? const Center(child: CircularProgressIndicator())
++          : ListView(
++              padding: const EdgeInsets.all(16),
++              children: [
++                _previewCard(),
++                const SizedBox(height: 24),
++                const Text('正文字体大小',
++                    style: TextStyle(fontWeight: FontWeight.w600)),
++                Row(
++                  children: [
++                    Expanded(
++                      child: Slider(
++                        value: _size,
++                        min: 12,
++                        max: 32,
++                        divisions: 40,
++                        label: '${_size.round()}',
++                        onChanged: (v) => setState(() => _size = v),
++                        onChangeEnd: _saveSize,
++                      ),
++                    ),
++                    Text('${_size.round()}',
++                        style: const TextStyle(fontWeight: FontWeight.w600)),
++                  ],
++                ),
++                const SizedBox(height: 16),
++                const Text('字体族',
++                    style: TextStyle(fontWeight: FontWeight.w600)),
++                const SizedBox(height: 8),
++                for (final (key, name, desc) in _families)
++                  RadioListTile<String>(
++                    value: key,
++                    groupValue: _family,
++                    dense: true,
++                    title: Text(name, style: TextStyle(fontFamily: key == 'system' ? null : key)),
++                    subtitle: Text(desc,
++                        style: TextStyle(
++                            fontSize: 12, color: Colors.grey.shade600)),
++                    onChanged: (v) {
++                      if (v == null) return;
++                      setState(() => _family = v);
++                      _saveFamily(v);
++                    },
++                  ),
++              ],
++            ),
++    );
++  }
++
++  Widget _previewCard() {
++    return Card(
++      color: Theme.of(context).colorScheme.surfaceContainerHighest,
++      child: Padding(
++        padding: const EdgeInsets.all(16),
++        child: Text(
++          '椒盐笔记\n这是编辑器字体预览：明月几时有，把酒问青天。\n# 标题 **加粗** 等等 Markdown 元素。',
++          style: TextStyle(
++            fontSize: _size,
++            height: 1.6,
++            fontFamily: _family == 'system' ? null : _family,
++          ),
++        ),
++      ),
++    );
++  }
++}
+diff --git a/lib/ui/theme/wallpaper_page.dart b/lib/ui/theme/wallpaper_page.dart
+new file mode 100644
+index 0000000..234fa19
+--- /dev/null
++++ b/lib/ui/theme/wallpaper_page.dart
+@@ -0,0 +1,118 @@
++import 'package:cached_network_image/cached_network_image.dart';
++import 'package:flutter/material.dart';
++
++import '../../services/settings_service.dart';
++import '../../theme/wallpapers.dart';
++
++/// 壁纸选择页。
++///
++/// 对应原 Android 端的「壁纸」，双列网格展示纯色与图片壁纸，
++/// 选中后写入设置并应用到首页 / 编辑器背景。
++class WallpaperPage extends StatefulWidget {
++  const WallpaperPage({super.key});
++
++  @override
++  State<WallpaperPage> createState() => _WallpaperPageState();
++}
++
++class _WallpaperPageState extends State<WallpaperPage> {
++  SettingsService? _settings;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() => _settings = s);
++  }
++
++  Future<void> _apply(WallpaperOption w) async {
++    final s = _settings!;
++    // DayNight 表示跟随系统（清除设置）。
++    await s.setWallpaper(w.isFollowSystem ? null : w.key);
++    if (mounted) setState(() {});
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final s = _settings;
++    return Scaffold(
++      appBar: AppBar(title: const Text('壁纸')),
++      body: s == null
++          ? const Center(child: CircularProgressIndicator())
++          : GridView.builder(
++              padding: const EdgeInsets.all(16),
++              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
++                maxCrossAxisExtent: 220,
++                mainAxisSpacing: 12,
++                crossAxisSpacing: 12,
++                childAspectRatio: 0.92,
++              ),
++              itemCount: kWallpapers.length,
++              itemBuilder: (ctx, i) => _buildItem(ctx, s, kWallpapers[i]),
++            ),
++    );
++  }
++
++  Widget _buildItem(BuildContext context, SettingsService s, WallpaperOption w) {
++    final selected = (s.wallpaper == null && w.isFollowSystem) ||
++        s.wallpaper == w.key;
++    return InkWell(
++      borderRadius: BorderRadius.circular(16),
++      onTap: () => _apply(w),
++      child: Column(
++        crossAxisAlignment: CrossAxisAlignment.start,
++        children: [
++          Expanded(
++            child: Container(
++              width: double.infinity,
++              decoration: BoxDecoration(
++                borderRadius: BorderRadius.circular(16),
++                border: Border.all(
++                  color: selected
++                      ? Theme.of(context).colorScheme.primary
++                      : Colors.black12,
++                  width: selected ? 3 : 1,
++                ),
++                image: w.isColor
++                    ? null
++                    : DecorationImage(
++                        image: CachedNetworkImageProvider(w.imageUrl!),
++                        fit: BoxFit.cover,
++                      ),
++                color: w.isColor ? w.color : null,
++              ),
++              child: selected
++                  ? Center(
++                      child: Icon(
++                        Icons.check_circle,
++                        color: w.isDark ? Colors.white : Colors.black54,
++                        size: 32,
++                      ),
++                    )
++                  : null,
++            ),
++          ),
++          const SizedBox(height: 6),
++          Text(
++            w.title,
++            maxLines: 1,
++            overflow: TextOverflow.ellipsis,
++            style: const TextStyle(fontWeight: FontWeight.w600),
++          ),
++          if (w.subtitle != null)
++            Text(
++              w.subtitle!,
++              maxLines: 1,
++              overflow: TextOverflow.ellipsis,
++              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
++            ),
++        ],
++      ),
++    );
++  }
++}
+diff --git a/lib/widgets/wallpaper_background.dart b/lib/widgets/wallpaper_background.dart
+new file mode 100644
+index 0000000..8b83538
+--- /dev/null
++++ b/lib/widgets/wallpaper_background.dart
+@@ -0,0 +1,53 @@
++import 'package:cached_network_image/cached_network_image.dart';
++import 'package:flutter/material.dart';
++
++import '../services/settings_service.dart';
++import '../theme/wallpapers.dart';
++
++/// 壁纸背景容器。
++///
++/// 读取当前壁纸设置并作为背景渲染（纯色 / 网络图片），
++/// 子组件叠加在其上。未设置或跟随系统时使用主题默认背景。
++class WallpaperBackground extends StatefulWidget {
++  const WallpaperBackground({super.key, required this.child});
++
++  final Widget child;
++
++  @override
++  State<WallpaperBackground> createState() => _WallpaperBackgroundState();
++}
++
++class _WallpaperBackgroundState extends State<WallpaperBackground> {
++  WallpaperOption? _wallpaper;
++
++  @override
++  void initState() {
++    super.initState();
++    _load();
++  }
++
++  Future<void> _load() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() => _wallpaper = wallpaperByKey(s.wallpaper));
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    final w = _wallpaper;
++    if (w == null) return widget.child;
++    if (w.isColor) {
++      return Container(color: w.color, child: widget.child);
++    }
++    return Stack(
++      fit: StackFit.expand,
++      children: [
++        Image(
++          image: CachedNetworkImageProvider(w.imageUrl!),
++          fit: BoxFit.cover,
++        ),
++        widget.child,
++      ],
++    );
++  }
++}
+diff --git a/pubspec.lock b/pubspec.lock
+index 49bc36c..add7fc7 100644
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -6,7 +6,7 @@ packages:
+     description:
+       name: archive
+       sha256: a96e8b390886ee8abb49b7bd3ac8df6f451c621619f52a26e815fdcf568959ff
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.9"
+   args:
+@@ -14,23 +14,23 @@ packages:
+     description:
+       name: args
+       sha256: d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.7.0"
+   async:
+     dependency: transitive
+     description:
+       name: async
+-      sha256: "947bfcf187f74dbc5e146c9eb9c0f10c9f8b30743e341481c1e2ed3ecc18c20c"
+-      url: "https://pub.flutter-io.cn"
++      sha256: d2872f9c19731c2e5f10444b14686eb7cc85c76274bd6c16e1816bff9a3bab63
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.11.0"
++    version: "2.12.0"
+   barcode:
+     dependency: transitive
+     description:
+       name: barcode
+       sha256: "7b6729c37e3b7f34233e2318d866e8c48ddb46c1f7ad01ff7bb2a8de1da2b9f4"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.9"
+   bidi:
+@@ -38,23 +38,23 @@ packages:
+     description:
+       name: bidi
+       sha256: "77f475165e94b261745cf1032c751e2032b8ed92ccb2bf5716036db79320637d"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.0.13"
+   boolean_selector:
+     dependency: transitive
+     description:
+       name: boolean_selector
+-      sha256: "6cfb5af12253eaf2b368f07bacc5a80d1301a071c73360d746b7f2e32d762c66"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "8aab1771e1243a5063b8b0ff68042d67334e3feab9e95b9490f9a6ebf73b42ea"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.1.1"
++    version: "2.1.2"
+   cached_network_image:
+     dependency: "direct main"
+     description:
+       name: cached_network_image
+       sha256: "7c1183e361e5c8b0a0f21a28401eecdbde252441106a9816400dd4c2b2424916"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.4.1"
+   cached_network_image_platform_interface:
+@@ -62,7 +62,7 @@ packages:
+     description:
+       name: cached_network_image_platform_interface
+       sha256: "35814b016e37fbdc91f7ae18c8caf49ba5c88501813f73ce8a07027a395e2829"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.1.1"
+   cached_network_image_web:
+@@ -70,55 +70,55 @@ packages:
+     description:
+       name: cached_network_image_web
+       sha256: "980842f4e8e2535b8dbd3d5ca0b1f0ba66bf61d14cc3a17a9b4788a3685ba062"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.3.1"
+   characters:
+     dependency: transitive
+     description:
+       name: characters
+-      sha256: "04a925763edad70e8443c99234dc3328f442e811f1d8fd1a72f1c8ad0f69a605"
+-      url: "https://pub.flutter-io.cn"
++      sha256: f71061c654a3380576a52b451dd5532377954cf9dbd272a78fc8479606670803
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.3.0"
++    version: "1.4.0"
+   clock:
+     dependency: transitive
+     description:
+       name: clock
+-      sha256: cb6d7f03e1de671e34607e909a7213e31d7752be4fb66a86d29fe1eb14bfb5cf
+-      url: "https://pub.flutter-io.cn"
++      sha256: fddb70d9b5277016c77a80201021d40a2247104d9f4aa7bab7157b7e3f05b84b
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.1.1"
++    version: "1.1.2"
+   collection:
+     dependency: transitive
+     description:
+       name: collection
+-      sha256: ee67cb0715911d28db6bf4af1026078bd6f0128b07a5f66fb2ed94ec6783c09a
+-      url: "https://pub.flutter-io.cn"
++      sha256: "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.18.0"
++    version: "1.19.1"
+   convert:
+     dependency: transitive
+     description:
+       name: convert
+       sha256: b30acd5944035672bc15c6b7a8b47d773e41e2f17de064350988c5d02adb1c68
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.2"
+   cross_file:
+     dependency: "direct main"
+     description:
+       name: cross_file
+-      sha256: "7caf6a750a0c04effbb52a676dce9a4a592e10ad35c34d6d2d0e4811160d5670"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "942a4791cd385a68ccb3b32c71c427aba508a1bb949b86dff2adbe4049f16239"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.3.4+2"
++    version: "0.3.5"
+   crypto:
+     dependency: transitive
+     description:
+       name: crypto
+       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.7"
+   cupertino_icons:
+@@ -126,7 +126,7 @@ packages:
+     description:
+       name: cupertino_icons
+       sha256: ba631d1c7f7bef6b729a622b7b752645a2d076dba9976925b8f25725a30e1ee6
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.8"
+   dio:
+@@ -134,7 +134,7 @@ packages:
+     description:
+       name: dio
+       sha256: "0df44ebba85e503958eb75d07eedd3c86275a58c1d3eda2f2ce8f0a2c3abbb3c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "5.11.0"
+   dio_web_adapter:
+@@ -142,87 +142,87 @@ packages:
+     description:
+       name: dio_web_adapter
+       sha256: "0786d0b7295a373de356fc0af4f6f1d0ab2844ed31b19dfc5e7556b70e24212c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.1"
+   fake_async:
+     dependency: transitive
+     description:
+       name: fake_async
+-      sha256: "511392330127add0b769b75a987850d136345d9227c6b94c96a04cf4a391bf78"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "6a95e56b2449df2273fd8c45a662d6947ce1ebb7aafe80e550a3f68297f3cacc"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.3.1"
++    version: "1.3.2"
+   ffi:
+     dependency: transitive
+     description:
+       name: ffi
+-      sha256: "16ed7b077ef01ad6170a3d0c57caa4a112a38d7a2ed5602e0aca9ca6f3d98da6"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.1.3"
++    version: "2.2.0"
+   file:
+     dependency: transitive
+     description:
+       name: file
+       sha256: a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "7.0.1"
+   file_selector:
+     dependency: "direct main"
+     description:
+       name: file_selector
+-      sha256: "5019692b593455127794d5718304ff1ae15447dea286cdda9f0db2a796a1b828"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "5f1d15a7f17115038f433d1b0ea57513cc9e29a9d5338d166cb0bef3fa90a7a0"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.0.3"
++    version: "1.0.4"
+   file_selector_android:
+     dependency: transitive
+     description:
+       name: file_selector_android
+-      sha256: "98ac58e878b05ea2fdb204e7f4fc4978d90406c9881874f901428e01d3b18fbc"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "1ce58b609289551f8ec07265476720e77d19764339cc1d8e4df3c4d34dac6499"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.5.1+12"
++    version: "0.5.1+17"
+   file_selector_ios:
+     dependency: transitive
+     description:
+       name: file_selector_ios
+-      sha256: "94b98ad950b8d40d96fee8fa88640c2e4bd8afcdd4817993bd04e20310f45420"
+-      url: "https://pub.flutter-io.cn"
++      sha256: fe9f52123af16bba4ad65bd7e03defbbb4b172a38a8e6aaa2a869a0c56a5f5fb
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.5.3+1"
++    version: "0.5.3+2"
+   file_selector_linux:
+     dependency: transitive
+     description:
+       name: file_selector_linux
+       sha256: "54cbbd957e1156d29548c7d9b9ec0c0ebb6de0a90452198683a7d23aed617a33"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.3+2"
+   file_selector_macos:
+     dependency: transitive
+     description:
+       name: file_selector_macos
+-      sha256: "271ab9986df0c135d45c3cdb6bd0faa5db6f4976d3e4b437cf7d0f258d941bfc"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "19124ff4a3d8864fdc62072b6a2ef6c222d55a3404fe14893a3c02744907b60c"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.9.4+2"
++    version: "0.9.4+4"
+   file_selector_platform_interface:
+     dependency: transitive
+     description:
+       name: file_selector_platform_interface
+-      sha256: a3994c26f10378a039faa11de174d7b78eb8f79e4dd0af2a451410c1a5c3f66b
+-      url: "https://pub.flutter-io.cn"
++      sha256: "35e0bd61ebcdb91a3505813b055b09b79dfdc7d0aee9c09a7ba59ae4bb13dc85"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.6.2"
++    version: "2.7.0"
+   file_selector_web:
+     dependency: transitive
+     description:
+       name: file_selector_web
+       sha256: c4c0ea4224d97a60a7067eca0c8fd419e708ff830e0c83b11a48faf566cec3e7
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.4+2"
+   file_selector_windows:
+@@ -230,7 +230,7 @@ packages:
+     description:
+       name: file_selector_windows
+       sha256: "320fcfb6f33caa90f0b58380489fc5ac05d99ee94b61aa96ec2bff0ba81d3c2b"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.3+4"
+   fixnum:
+@@ -238,7 +238,7 @@ packages:
+     description:
+       name: fixnum
+       sha256: b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.1"
+   flutter:
+@@ -251,7 +251,7 @@ packages:
+     description:
+       name: flutter_cache_manager
+       sha256: "400b6592f16a4409a7f2bb929a9a7e38c72cceb8ffb99ee57bbf2cb2cecf8386"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.4.1"
+   flutter_lints:
+@@ -259,7 +259,7 @@ packages:
+     description:
+       name: flutter_lints
+       sha256: "3f41d009ba7172d5ff9be5f6e6e6abb4300e263aab8866d2a0842ed2a70f8f0c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.0"
+   flutter_markdown:
+@@ -267,7 +267,7 @@ packages:
+     description:
+       name: flutter_markdown
+       sha256: "08fb8315236099ff8e90cb87bb2b935e0a724a3af1623000a9cec930468e0f27"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.7.7+1"
+   flutter_test:
+@@ -285,23 +285,23 @@ packages:
+     description:
+       name: http
+       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.6.0"
+   http_parser:
+     dependency: transitive
+     description:
+       name: http_parser
+-      sha256: "2aa08ce0341cc9b354a498388e30986515406668dbcc4f7c950c3e715496693b"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "4.0.2"
++    version: "4.1.2"
+   image:
+     dependency: "direct main"
+     description:
+       name: image
+       sha256: "4e973fcf4caae1a4be2fa0a13157aa38a8f9cb049db6529aa00b4d71abc4d928"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.5.4"
+   intl:
+@@ -309,31 +309,31 @@ packages:
+     description:
+       name: intl
+       sha256: d6f56758b7d3014a48af9701c085700aac781a92a87a62b1333b46d8879661cf
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.19.0"
+   leak_tracker:
+     dependency: transitive
+     description:
+       name: leak_tracker
+-      sha256: "3f87a60e8c63aecc975dda1ceedbc8f24de75f09e4856ea27daf8958f2f0ce05"
+-      url: "https://pub.flutter-io.cn"
++      sha256: c35baad643ba394b40aac41080300150a4f08fd0fd6a10378f8f7c6bc161acec
++      url: "https://pub.dev"
+     source: hosted
+-    version: "10.0.5"
++    version: "10.0.8"
+   leak_tracker_flutter_testing:
+     dependency: transitive
+     description:
+       name: leak_tracker_flutter_testing
+-      sha256: "932549fb305594d82d7183ecd9fa93463e9914e1b67cacc34bc40906594a1806"
+-      url: "https://pub.flutter-io.cn"
++      sha256: f8b613e7e6a13ec79cfdc0e97638fddb3ab848452eff057653abd3edba760573
++      url: "https://pub.dev"
+     source: hosted
+-    version: "3.0.5"
++    version: "3.0.9"
+   leak_tracker_testing:
+     dependency: transitive
+     description:
+       name: leak_tracker_testing
+       sha256: "6ba465d5d76e67ddf503e1161d1f4a6bc42306f9d66ca1e8f079a47290fb06d3"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.1"
+   lints:
+@@ -341,7 +341,7 @@ packages:
+     description:
+       name: lints
+       sha256: "976c774dd944a42e83e2467f4cc670daef7eed6295b10b36ae8c85bcbf828235"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.0"
+   markdown:
+@@ -349,47 +349,47 @@ packages:
+     description:
+       name: markdown
+       sha256: "935e23e1ff3bc02d390bad4d4be001208ee92cc217cb5b5a6c19bc14aaa318c1"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "7.3.0"
+   matcher:
+     dependency: transitive
+     description:
+       name: matcher
+-      sha256: d2323aa2060500f906aa31a895b4030b6da3ebdcc5619d14ce1aada65cd161cb
+-      url: "https://pub.flutter-io.cn"
++      sha256: dc58c723c3c24bf8d3e2d3ad3f2f9d7bd9cf43ec6feaa64181775e60190153f2
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.12.16+1"
++    version: "0.12.17"
+   material_color_utilities:
+     dependency: transitive
+     description:
+       name: material_color_utilities
+       sha256: f7142bb1154231d7ea5f96bc7bde4bda2a0945d2806bb11670e30b850d56bdec
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.11.1"
+   meta:
+     dependency: transitive
+     description:
+       name: meta
+-      sha256: bdb68674043280c3428e9ec998512fb681678676b3c54e773629ffe74419f8c7
+-      url: "https://pub.flutter-io.cn"
++      sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.15.0"
++    version: "1.16.0"
+   mime:
+     dependency: transitive
+     description:
+       name: mime
+-      sha256: "41a20518f0cb1256669420fdba0cd90d21561e560ac240f26ef8322e45bb7ed6"
+-      url: "https://pub.flutter-io.cn"
++      sha256: bd47de35f07e27267e69c8c8b22edf9473bfee170a60d60fcc93730c5144b7f6
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.0.0"
++    version: "2.1.0"
+   nested:
+     dependency: transitive
+     description:
+       name: nested
+       sha256: "03bac4c528c64c95c722ec99280375a6f2fc708eec17c7b3f07253b626cd2a20"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.0"
+   octo_image:
+@@ -397,23 +397,23 @@ packages:
+     description:
+       name: octo_image
+       sha256: "34faa6639a78c7e3cbe79be6f9f96535867e879748ade7d17c9b1ae7536293bd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.0"
+   path:
+     dependency: "direct main"
+     description:
+       name: path
+-      sha256: "087ce49c3f0dc39180befefc60fdb4acd8f8620e5682fe2476afd0b3688bb4af"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.9.0"
++    version: "1.9.1"
+   path_parsing:
+     dependency: transitive
+     description:
+       name: path_parsing
+       sha256: "883402936929eac138ee0a45da5b0f2c80f89913e6dc3bf77eb65b84b409c6ca"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.0"
+   path_provider:
+@@ -421,31 +421,31 @@ packages:
+     description:
+       name: path_provider
+       sha256: "50c5dd5b6e1aaf6fb3a78b33f6aa3afca52bf903a8a5298f53101fdaee55bbcd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.5"
+   path_provider_android:
+     dependency: transitive
+     description:
+       name: path_provider_android
+-      sha256: "4adf4fd5423ec60a29506c76581bc05854c55e3a0b72d35bb28d661c9686edf2"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "3b4c1fc3aa55ddc9cd4aa6759984330d5c8e66aa7702a6223c61540dc6380c37"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.2.15"
++    version: "2.2.19"
+   path_provider_foundation:
+     dependency: transitive
+     description:
+       name: path_provider_foundation
+-      sha256: "4843174df4d288f5e29185bd6e72a6fbdf5a4a4602717eed565497429f179942"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "16eef174aacb07e09c351502740fa6254c165757638eba1e9116b0a781201bbd"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.4.1"
++    version: "2.4.2"
+   path_provider_linux:
+     dependency: transitive
+     description:
+       name: path_provider_linux
+       sha256: f7a1fe3a634fe7734c8d3f2766ad746ae2a2884abe22e241a8b301bf5cac3279
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.1"
+   path_provider_platform_interface:
+@@ -453,7 +453,7 @@ packages:
+     description:
+       name: path_provider_platform_interface
+       sha256: "88f5779f72ba699763fa3a3b06aa4bf6de76c8e5de842cf6f29e2e06476c2334"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.2"
+   path_provider_windows:
+@@ -461,7 +461,7 @@ packages:
+     description:
+       name: path_provider_windows
+       sha256: bd6f00dbd873bfb70d0761682da2b3a2c2fccc2b9e84c495821639601d81afe7
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.3.0"
+   pdf:
+@@ -469,7 +469,7 @@ packages:
+     description:
+       name: pdf
+       sha256: "28eacad99bffcce2e05bba24e50153890ad0255294f4dd78a17075a2ba5c8416"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.11.3"
+   pdf_widget_wrapper:
+@@ -477,23 +477,23 @@ packages:
+     description:
+       name: pdf_widget_wrapper
+       sha256: c930860d987213a3d58c7ec3b7ecf8085c3897f773e8dc23da9cae60a5d6d0f5
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.4"
+   petitparser:
+     dependency: transitive
+     description:
+       name: petitparser
+-      sha256: c15605cd28af66339f8eb6fbe0e541bfe2d1b72d5825efc6598f3e0a31b9ad27
+-      url: "https://pub.flutter-io.cn"
++      sha256: "07c8f0b1913bcde1ff0d26e57ace2f3012ccbf2b204e070290dad3bb22797646"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "6.0.2"
++    version: "6.1.0"
+   platform:
+     dependency: transitive
+     description:
+       name: platform
+       sha256: "5d6b1b0036a5f331ebc77c850ebc8506cbc1e9416c27e59b439f917a902a4984"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.6"
+   plugin_platform_interface:
+@@ -501,7 +501,7 @@ packages:
+     description:
+       name: plugin_platform_interface
+       sha256: "4820fbfdb9478b1ebae27888254d445073732dae3d6ea81f0b7e06d5dedc3f02"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.8"
+   posix:
+@@ -509,7 +509,7 @@ packages:
+     description:
+       name: posix
+       sha256: bc1bad54ad2b735816e31f8d4600cfde6c7839975085ddfbca48b6c9f7c4044e
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.5.2"
+   printing:
+@@ -517,7 +517,7 @@ packages:
+     description:
+       name: printing
+       sha256: "689170c9ddb1bda85826466ba80378aa8993486d3c959a71cd7d2d80cb606692"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "5.14.3"
+   provider:
+@@ -525,7 +525,7 @@ packages:
+     description:
+       name: provider
+       sha256: "4e82183fa20e5ca25703ead7e05de9e4cceed1fbd1eadc1ac3cb6f565a09f272"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.1.5+1"
+   qr:
+@@ -533,7 +533,7 @@ packages:
+     description:
+       name: qr
+       sha256: "5a1d2586170e172b8a8c8470bbbffd5eb0cd38a66c0d77155ea138d3af3a4445"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.2"
+   rxdart:
+@@ -541,7 +541,7 @@ packages:
+     description:
+       name: rxdart
+       sha256: "5c3004a4a8dbb94bd4bf5412a4def4acdaa12e12f269737a5751369e12d1a962"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.28.0"
+   shared_preferences:
+@@ -549,23 +549,23 @@ packages:
+     description:
+       name: shared_preferences
+       sha256: "6e8bf70b7fef813df4e9a36f658ac46d107db4b4cfe1048b477d4e453a8159f5"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.5.3"
+   shared_preferences_android:
+     dependency: transitive
+     description:
+       name: shared_preferences_android
+-      sha256: "9f9f3d372d4304723e6136663bb291c0b93f5e4c8a4a6314347f481a33bda2b1"
+-      url: "https://pub.flutter-io.cn"
++      sha256: bd14436108211b0d4ee5038689a56d4ae3620fd72fd6036e113bf1345bc74d9e
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.4.7"
++    version: "2.4.13"
+   shared_preferences_foundation:
+     dependency: transitive
+     description:
+       name: shared_preferences_foundation
+       sha256: "6a52cfcdaeac77cad8c97b539ff688ccfc458c007b4db12be584fbe5c0e49e03"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.5.4"
+   shared_preferences_linux:
+@@ -573,7 +573,7 @@ packages:
+     description:
+       name: shared_preferences_linux
+       sha256: "580abfd40f415611503cae30adf626e6656dfb2f0cee8f465ece7b6defb40f2f"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   shared_preferences_platform_interface:
+@@ -581,7 +581,7 @@ packages:
+     description:
+       name: shared_preferences_platform_interface
+       sha256: "57cbf196c486bc2cf1f02b85784932c6094376284b3ad5779d1b1c6c6a816b80"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   shared_preferences_web:
+@@ -589,7 +589,7 @@ packages:
+     description:
+       name: shared_preferences_web
+       sha256: c49bd060261c9a3f0ff445892695d6212ff603ef3115edbb448509d407600019
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.3"
+   shared_preferences_windows:
+@@ -597,68 +597,68 @@ packages:
+     description:
+       name: shared_preferences_windows
+       sha256: "94ef0f72b2d71bc3e700e025db3710911bd51a71cefb65cc609dd0d9a982e3c1"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   sky_engine:
+     dependency: transitive
+     description: flutter
+     source: sdk
+-    version: "0.0.99"
++    version: "0.0.0"
+   source_span:
+     dependency: transitive
+     description:
+       name: source_span
+-      sha256: "53e943d4206a5e30df338fd4c6e7a077e02254531b138a15aec3bd143c1a8b3c"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "254ee5351d6cb365c859e20ee823c3bb479bf4a293c22d17a9f1bf144ce86f7c"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.10.0"
++    version: "1.10.1"
+   sqflite:
+     dependency: "direct main"
+     description:
+       name: sqflite
+-      sha256: "2d7299468485dca85efeeadf5d38986909c5eb0cd71fd3db2c2f000e6c9454bb"
+-      url: "https://pub.flutter-io.cn"
++      sha256: e2297b1da52f127bc7a3da11439985d9b536f75070f3325e62ada69a5c585d03
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.4.1"
++    version: "2.4.2"
+   sqflite_android:
+     dependency: transitive
+     description:
+       name: sqflite_android
+-      sha256: "78f489aab276260cdd26676d2169446c7ecd3484bbd5fead4ca14f3ed4dd9ee3"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "2b3070c5fa881839f8b402ee4a39c1b4d561704d4ebbbcfb808a119bc2a1701b"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.4.0"
++    version: "2.4.1"
+   sqflite_common:
+     dependency: transitive
+     description:
+       name: sqflite_common
+-      sha256: "761b9740ecbd4d3e66b8916d784e581861fd3c3553eda85e167bc49fdb68f709"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "84731e8bfd8303a3389903e01fb2141b6e59b5973cacbb0929021df08dddbe8b"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.5.4+6"
++    version: "2.5.5"
+   sqflite_common_ffi:
+     dependency: "direct main"
+     description:
+       name: sqflite_common_ffi
+-      sha256: "883dd810b2b49e6e8c3b980df1829ef550a94e3f87deab5d864917d27ca6bf36"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "9faa2fedc5385ef238ce772589f7718c24cdddd27419b609bb9c6f703ea27988"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.3.4+4"
++    version: "2.3.6"
+   sqflite_darwin:
+     dependency: transitive
+     description:
+       name: sqflite_darwin
+-      sha256: "22adfd9a2c7d634041e96d6241e6e1c8138ca6817018afc5d443fef91dcefa9c"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "279832e5cde3fe99e8571879498c9211f3ca6391b0d818df4e17d9fff5c6ccb3"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.4.1+1"
++    version: "2.4.2"
+   sqflite_platform_interface:
+     dependency: transitive
+     description:
+       name: sqflite_platform_interface
+       sha256: "8dd4515c7bdcae0a785b0062859336de775e8c65db81ae33dd5445f35be61920"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.0"
+   sqlite3:
+@@ -666,127 +666,127 @@ packages:
+     description:
+       name: sqlite3
+       sha256: "3145bd74dcdb4fd6f5c6dda4d4e4490a8087d7f286a14dee5d37087290f0f8a2"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.9.4"
+   stack_trace:
+     dependency: transitive
+     description:
+       name: stack_trace
+-      sha256: "73713990125a6d93122541237550ee3352a2d84baad52d375a4cad2eb9b7ce0b"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "8b27215b45d22309b5cddda1aa2b19bdfec9df0e765f2de506401c071d38d1b1"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.11.1"
++    version: "1.12.1"
+   stream_channel:
+     dependency: transitive
+     description:
+       name: stream_channel
+-      sha256: ba2aa5d8cc609d96bbb2899c28934f9e1af5cddbd60a827822ea467161eb54e7
+-      url: "https://pub.flutter-io.cn"
++      sha256: "969e04c80b8bcdf826f8f16579c7b14d780458bd97f56d107d3950fdbeef059d"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.1.2"
++    version: "2.1.4"
+   string_scanner:
+     dependency: transitive
+     description:
+       name: string_scanner
+-      sha256: "556692adab6cfa87322a115640c11f13cb77b3f076ddcc5d6ae3c20242bedcde"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "921cd31725b72fe181906c6a94d987c78e3b98c2e205b397ea399d4054872b43"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.2.0"
++    version: "1.4.1"
+   synchronized:
+     dependency: transitive
+     description:
+       name: synchronized
+-      sha256: "69fe30f3a8b04a0be0c15ae6490fc859a78ef4c43ae2dd5e8a623d45bfcf9225"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "0669c70faae6270521ee4f05bffd2919892d42d1276e6c495be80174b6bc0ef6"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "3.3.0+3"
++    version: "3.3.1"
+   term_glyph:
+     dependency: transitive
+     description:
+       name: term_glyph
+-      sha256: a29248a84fbb7c79282b40b8c72a1209db169a2e0542bce341da992fe1bc7e84
+-      url: "https://pub.flutter-io.cn"
++      sha256: "7f554798625ea768a7518313e58f83891c7f5024f88e46e7182a4558850a4b8e"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "1.2.1"
++    version: "1.2.2"
+   test_api:
+     dependency: transitive
+     description:
+       name: test_api
+-      sha256: "5b8a98dafc4d5c4c9c72d8b31ab2b23fc13422348d2997120294d3bac86b4ddb"
+-      url: "https://pub.flutter-io.cn"
++      sha256: fb31f383e2ee25fbbfe06b40fe21e1e458d14080e3c67e7ba0acfde4df4e0bbd
++      url: "https://pub.dev"
+     source: hosted
+-    version: "0.7.2"
++    version: "0.7.4"
+   typed_data:
+     dependency: transitive
+     description:
+       name: typed_data
+       sha256: f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.4.0"
+   url_launcher:
+     dependency: "direct main"
+     description:
+       name: url_launcher
+-      sha256: "9d06212b1362abc2f0f0d78e6f09f726608c74e3b9462e8368bb03314aa8d603"
+-      url: "https://pub.flutter-io.cn"
++      sha256: f6a7e5c4835bb4e3026a04793a4199ca2d14c739ec378fdfe23fc8075d0439f8
++      url: "https://pub.dev"
+     source: hosted
+-    version: "6.3.1"
++    version: "6.3.2"
+   url_launcher_android:
+     dependency: transitive
+     description:
+       name: url_launcher_android
+-      sha256: "6fc2f56536ee873eeb867ad176ae15f304ccccc357848b351f6f0d8d4a40d193"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "81777b08c498a292d93ff2feead633174c386291e35612f8da438d6e92c4447e"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "6.3.14"
++    version: "6.3.20"
+   url_launcher_ios:
+     dependency: transitive
+     description:
+       name: url_launcher_ios
+-      sha256: "7f2022359d4c099eea7df3fdf739f7d3d3b9faf3166fb1dd390775176e0b76cb"
+-      url: "https://pub.flutter-io.cn"
++      sha256: d80b3f567a617cb923546034cc94bfe44eb15f989fe670b37f26abdb9d939cb7
++      url: "https://pub.dev"
+     source: hosted
+-    version: "6.3.3"
++    version: "6.3.4"
+   url_launcher_linux:
+     dependency: transitive
+     description:
+       name: url_launcher_linux
+       sha256: "4e9ba368772369e3e08f231d2301b4ef72b9ff87c31192ef471b380ef29a4935"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.2.1"
+   url_launcher_macos:
+     dependency: transitive
+     description:
+       name: url_launcher_macos
+-      sha256: "17ba2000b847f334f16626a574c702b196723af2a289e7a93ffcb79acff855c2"
+-      url: "https://pub.flutter-io.cn"
++      sha256: c043a77d6600ac9c38300567f33ef12b0ef4f4783a2c1f00231d2b1941fea13f
++      url: "https://pub.dev"
+     source: hosted
+-    version: "3.2.2"
++    version: "3.2.3"
+   url_launcher_platform_interface:
+     dependency: transitive
+     description:
+       name: url_launcher_platform_interface
+       sha256: "552f8a1e663569be95a8190206a38187b531910283c3e982193e4f2733f01029"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.3.2"
+   url_launcher_web:
+     dependency: transitive
+     description:
+       name: url_launcher_web
+-      sha256: "772638d3b34c779ede05ba3d38af34657a05ac55b06279ea6edd409e323dca8e"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "4bd2b7b4dc4d4d0b94e5babfffbca8eac1a126c7f3d6ecbc1a11013faa3abba2"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "2.3.3"
++    version: "2.4.1"
+   url_launcher_windows:
+     dependency: transitive
+     description:
+       name: url_launcher_windows
+       sha256: "3284b6d2ac454cf34f114e1d3319866fdd1e19cdc329999057e44ffe936cfa77"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.4"
+   uuid:
+@@ -794,7 +794,7 @@ packages:
+     description:
+       name: uuid
+       sha256: "9b129329f58692f6e6578329498a8fe9fbe98f090beb764ffbb8ee2eadd01dcd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.6.0"
+   vector_math:
+@@ -802,23 +802,23 @@ packages:
+     description:
+       name: vector_math
+       sha256: "80b3257d1492ce4d091729e3a67a60407d227c27241d6927be0130c98e741803"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.4"
+   vm_service:
+     dependency: transitive
+     description:
+       name: vm_service
+-      sha256: "5c5f338a667b4c644744b661f309fb8080bb94b18a7e91ef1dbd343bed00ed6d"
+-      url: "https://pub.flutter-io.cn"
++      sha256: "0968250880a6c5fe7edc067ed0a13d4bae1577fe2771dcf3010d52c4a9d3ca14"
++      url: "https://pub.dev"
+     source: hosted
+-    version: "14.2.5"
++    version: "14.3.1"
+   web:
+     dependency: transitive
+     description:
+       name: web
+       sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.1"
+   webdav_client:
+@@ -826,7 +826,7 @@ packages:
+     description:
+       name: webdav_client
+       sha256: "682fffc50b61dc0e8f46717171db03bf9caaa17347be41c0c91e297553bf86b2"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.2.2"
+   xdg_directories:
+@@ -834,7 +834,7 @@ packages:
+     description:
+       name: xdg_directories
+       sha256: "7a3f37b05d989967cdddcbb571f1ea834867ae2faa29725fd085180e0883aa15"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.0"
+   xml:
+@@ -842,9 +842,9 @@ packages:
+     description:
+       name: xml
+       sha256: b015a8ad1c488f66851d762d3090a21c600e479dc75e68328c52774040cf9226
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.5.0"
+ sdks:
+-  dart: ">=3.5.4 <4.0.0"
+-  flutter: ">=3.24.0"
++  dart: ">=3.7.0 <4.0.0"
++  flutter: ">=3.29.0"
+-- 
+2.43.0
+

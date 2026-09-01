@@ -1,0 +1,44 @@
+From 4b01146e16d9525306ac78e03fb0284553ff333b Mon Sep 17 00:00:00 2001
+From: JcEvoX <JcEvoX@users.noreply.github.com>
+Date: Sat, 29 Aug 2026 04:41:16 +0000
+Subject: [PATCH 05/18] =?UTF-8?q?android:=20=E5=8D=87=E7=BA=A7=20Gradle=20?=
+ =?UTF-8?q?8.14=20/=20AGP=208.11.1=20/=20Kotlin=202.2.20=20=E4=BB=A5?=
+ =?UTF-8?q?=E5=8C=B9=E9=85=8D=20Flutter=203.47=20=E6=9C=80=E4=BD=8E?=
+ =?UTF-8?q?=E8=A6=81=E6=B1=82?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ android/gradle/wrapper/gradle-wrapper.properties | 2 +-
+ android/settings.gradle                          | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/android/gradle/wrapper/gradle-wrapper.properties b/android/gradle/wrapper/gradle-wrapper.properties
+index 7bb2df6..e4ef43f 100644
+--- a/android/gradle/wrapper/gradle-wrapper.properties
++++ b/android/gradle/wrapper/gradle-wrapper.properties
+@@ -2,4 +2,4 @@ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ zipStoreBase=GRADLE_USER_HOME
+ zipStorePath=wrapper/dists
+-distributionUrl=https\://services.gradle.org/distributions/gradle-8.3-all.zip
++distributionUrl=https\://services.gradle.org/distributions/gradle-8.14-all.zip
+diff --git a/android/settings.gradle b/android/settings.gradle
+index b9e43bd..ff03f22 100644
+--- a/android/settings.gradle
++++ b/android/settings.gradle
+@@ -18,8 +18,8 @@ pluginManagement {
+ 
+ plugins {
+     id "dev.flutter.flutter-plugin-loader" version "1.0.0"
+-    id "com.android.application" version "8.1.0" apply false
+-    id "org.jetbrains.kotlin.android" version "1.8.22" apply false
++    id "com.android.application" version "8.11.1" apply false
++    id "org.jetbrains.kotlin.android" version "2.2.20" apply false
+ }
+ 
+ include ":app"
+-- 
+2.43.0
+

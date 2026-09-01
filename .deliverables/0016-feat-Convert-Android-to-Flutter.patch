@@ -1,0 +1,1554 @@
+From 1d3afc6d96d5ceebab908be0ca0143b57361bc3d Mon Sep 17 00:00:00 2001
+From: JcEvoX <JcEvoX@users.noreply.github.com>
+Date: Tue, 1 Sep 2026 10:18:25 +0000
+Subject: [PATCH 16/18] feat: Convert Android to Flutter
+
+Co-authored-by: traeagent <traeagent@users.noreply.github.com>
+---
+ lib/services/settings_service.dart            |  12 +
+ lib/ui/preview/latex_syntax.dart              |  76 ++++
+ .../markdown_preview_settings_page.dart       |  20 ++
+ lib/ui/preview/mermaid_renderer.dart          | 335 ++++++++++++++++++
+ lib/ui/preview/preview_page.dart              |  27 ++
+ pubspec.lock                                  | 254 +++++++------
+ pubspec.yaml                                  |   1 +
+ 7 files changed, 622 insertions(+), 103 deletions(-)
+ create mode 100644 lib/ui/preview/latex_syntax.dart
+ create mode 100644 lib/ui/preview/mermaid_renderer.dart
+
+diff --git a/lib/services/settings_service.dart b/lib/services/settings_service.dart
+index 5c1b875..c88d079 100644
+--- a/lib/services/settings_service.dart
++++ b/lib/services/settings_service.dart
+@@ -28,6 +28,8 @@ class SettingsService {
+   static const _kAutoBackupLocal = 'pref_auto_backup_local';
+   static const _kAutoBackupWebdav = 'pref_auto_backup_to_webdav';
+   static const _kMarkdownParseHtml = 'pref_markdown_parse_html';
++  static const _kMathJax = 'mathjax';
++  static const _kMermaid = 'mermaid';
+   static const _kWordCount = 'pref_show_word_count';
+ 
+   static SettingsService? _instance;
+@@ -126,6 +128,16 @@ class SettingsService {
+   Future<void> setMarkdownParseHtml(bool v) =>
+       _prefs.setBool(_kMarkdownParseHtml, v);
+ 
++  /// 预览是否渲染 MathJax 数学公式（对应原 Pro 功能 `mathjax`）。
++  bool get mathJax => _prefs.getBool(_kMathJax) ?? false;
++
++  Future<void> setMathJax(bool v) => _prefs.setBool(_kMathJax, v);
++
++  /// 预览是否渲染 Mermaid 流程图（对应原 Pro 功能 `mermaid`）。
++  bool get mermaid => _prefs.getBool(_kMermaid) ?? false;
++
++  Future<void> setMermaid(bool v) => _prefs.setBool(_kMermaid, v);
++
+   bool get showWordCount => _prefs.getBool(_kWordCount) ?? true;
+ 
+   Future<void> setShowWordCount(bool v) => _prefs.setBool(_kWordCount, v);
+diff --git a/lib/ui/preview/latex_syntax.dart b/lib/ui/preview/latex_syntax.dart
+new file mode 100644
+index 0000000..22e9718
+--- /dev/null
++++ b/lib/ui/preview/latex_syntax.dart
+@@ -0,0 +1,76 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_math_fork/flutter_math.dart';
++import 'package:flutter_markdown/flutter_markdown.dart';
++import 'package:markdown/markdown.dart' as md;
++
++/// 行内数学语法：匹配 `$...$`，产出 `math` 元素。
++///
++/// 先不匹配 `$$`（这是块级公式），避免与[LatexDisplayInlineSyntax]冲突。
++class LatexInlineSyntax extends md.InlineSyntax {
++  LatexInlineSyntax()
++      : super(
++          r'(?<!\$)\$([^\$\n]+?)\$(?!\$)',
++          startCharacter: 0x24, // '$'
++        );
++
++  @override
++  bool onMatch(md.InlineParser parser, Match match) {
++    final tex = (match.group(1) ?? '').trim();
++    if (tex.isEmpty) return false;
++    parser.addNode(md.Element.text('math', tex));
++    return true;
++  }
++}
++
++/// 块级数学语法：匹配 `$$...$$` 或 `\[...\]`，产出 `math-block` 元素。
++///
++/// 置于[LatexInlineSyntax]之前尝试，这样 `$$` 会先被整体消费。
++class LatexDisplayInlineSyntax extends md.InlineSyntax {
++  LatexDisplayInlineSyntax()
++      : super(
++          r'(?:\$\$([\s\S]+?)\$\$)|(?:\\\[([\s\S]+?)\\\])',
++        );
++  // startCharacter 不设：块级公式可能以 '$' 或 '\' 开头。
++
++  @override
++  bool onMatch(md.InlineParser parser, Match match) {
++    final tex = (match.group(1) ?? match.group(2) ?? '').trim();
++    if (tex.isEmpty) return false;
++    parser.addNode(md.Element.text('math-block', tex));
++    return true;
++  }
++}
++
++/// 将 `math` / `math-block` 元素渲染为 TeX 公式。
++class LatexElementBuilder extends MarkdownElementBuilder {
++  LatexElementBuilder({this.display = false});
++
++  /// 是否为块级（居中、加大字号）公式。
++  final bool display;
++
++  @override
++  Widget? visitElementAfterWithContext(
++    BuildContext context,
++    md.Element element,
++    TextStyle? preferredStyle,
++    TextStyle? parentStyle,
++  ) {
++    final tex = element.textContent;
++    if (tex.isEmpty) return null;
++
++    final style = preferredStyle ??
++        parentStyle ??
++        DefaultTextStyle.of(context).style.merge(const TextStyle(fontSize: 16));
++    final math = Math.tex(
++      tex,
++      mathStyle: display ? MathStyle.display : MathStyle.text,
++      textStyle: style,
++    );
++
++    if (!display) return math;
++    return Padding(
++      padding: const EdgeInsets.symmetric(vertical: 10),
++      child: math,
++    );
++  }
++}
+\ No newline at end of file
+diff --git a/lib/ui/preview/markdown_preview_settings_page.dart b/lib/ui/preview/markdown_preview_settings_page.dart
+index 3b55bb9..d799e02 100644
+--- a/lib/ui/preview/markdown_preview_settings_page.dart
++++ b/lib/ui/preview/markdown_preview_settings_page.dart
+@@ -49,6 +49,26 @@ class _MarkdownPreviewSettingsPageState extends State<MarkdownPreviewSettingsPag
+                     setState(() {});
+                   },
+                 ),
++                SwitchListTile(
++                  secondary: const Icon(Icons.functions),
++                  title: const Text('MathJax 数学公式'),
++                  subtitle: const Text(r'渲染 $...$ 行内与块级 LaTeX 公式'),
++                  value: s.mathJax,
++                  onChanged: (v) {
++                    s.setMathJax(v);
++                    setState(() {});
++                  },
++                ),
++                SwitchListTile(
++                  secondary: const Icon(Icons.schema_outlined),
++                  title: const Text('Mermaid 流程图'),
++                  subtitle: const Text('渲染 ```mermaid 代码块'),
++                  value: s.mermaid,
++                  onChanged: (v) {
++                    s.setMermaid(v);
++                    setState(() {});
++                  },
++                ),
+                 const Divider(),
+                 ListTile(
+                   leading: const Icon(Icons.help_outline),
+diff --git a/lib/ui/preview/mermaid_renderer.dart b/lib/ui/preview/mermaid_renderer.dart
+new file mode 100644
+index 0000000..ee0367f
+--- /dev/null
++++ b/lib/ui/preview/mermaid_renderer.dart
+@@ -0,0 +1,335 @@
++import 'package:flutter/material.dart';
++import 'package:flutter_markdown/flutter_markdown.dart';
++import 'package:markdown/markdown.dart' as md;
++
++/// 识别 ```mermaid / ~~~mermaid 围栏代码块，产出 `mermaid` 元素。
++///
++/// 该语法在 MarkdownBody 的 `blockSyntaxes` 中注册，优先级高于默认的
++/// `FencedCodeBlockSyntax`，从而把 mermaid 代码块交给
++/// [MermaidTagBuilder] 渲染，而普通代码块仍走默认高亮逻辑。
++class MermaidBlockSyntax extends md.BlockSyntax {
++  const MermaidBlockSyntax();
++
++  static final RegExp _fence = RegExp(r'^\s*(`{3,}|~{3,})\s*mermaid\s*$');
++
++  @override
++  RegExp get pattern => _fence;
++
++  @override
++  md.Node parse(md.BlockParser parser) {
++    final marker = pattern.firstMatch(parser.current.content)!.group(1)!;
++    final opening = marker[0];
++    final length = marker.length;
++
++    final lines = <String>[];
++    parser.advance();
++    while (!parser.isDone) {
++      final line = parser.current.content;
++      final close = RegExp('^\\s*${RegExp.escape(opening)}{$length,}\\s*\$')
++          .firstMatch(line);
++      if (close != null) {
++        parser.advance();
++        break;
++      }
++      lines.add(parser.current.content);
++      parser.advance();
++    }
++
++    final text = lines.join('\n');
++    return md.Element('mermaid', [md.Text(text)]);
++  }
++}
++
++/// 将 `mermaid` 元素渲染为 [MermaidDiagram]。
++class MermaidTagBuilder extends MarkdownElementBuilder {
++  @override
++  Widget? visitElementAfterWithContext(
++    BuildContext context,
++    md.Element element,
++    TextStyle? preferredStyle,
++    TextStyle? parentStyle,
++  ) {
++    return MermaidDiagram(definition: element.textContent);
++  }
++}
++
++enum _Shape { rect, round, diamond }
++
++class _MNode {
++  _MNode(this.id, this.text, this.shape);
++  final String id;
++  final String text;
++  final _Shape shape;
++}
++
++class _MEdge {
++  _MEdge(this.from, this.to, {this.label = '', this.dashed = false});
++  final String from;
++  final String to;
++  final String label;
++  final bool dashed;
++}
++
++/// 解析并渲染简单的 Mermaid 流程图（`graph TD` / `graph LR`）。
++///
++/// 支持：节点定义 `A[文本]` `A(文本)` `A{文本}`，以及边 `A --> B`、
++/// `A -- 标签 --> B`、`A --- B`、`A -.-> B`。复杂布局（subgraph、
++/// 方向、换行等）当前做降级处理，仍可展示流程骨架。
++class MermaidDiagram extends StatelessWidget {
++  const MermaidDiagram({super.key, required this.definition});
++
++  final String definition;
++
++  @override
++  Widget build(BuildContext context) {
++    final parsed = _parse(definition);
++    return _MermaidView(nodes: parsed.nodes, edges: parsed.edges);
++  }
++
++  /// 解析 Mermaid 定义文本。
++  _MermaidData _parse(String src) {
++    final nodes = <String, _MNode>{};
++    final edges = <_MEdge>[];
++    bool directionLr = false;
++
++    for (final raw in src.split('\n')) {
++      final line = raw.trim();
++      if (line.isEmpty) continue;
++
++      // 图方向声明。
++      if (line.startsWith('graph') || line.startsWith('flowchart')) {
++        directionLr = line.contains('LR') || line.contains('RL');
++        continue;
++      }
++
++      // 边定义：`A --> B`、`A --- B`、`A -.-> B`、`A -- label --> B`、
++      // `A -->|label| B`。
++      final edgeMatch = RegExp(r'^([\w\-]+)\s*(.*?)\s*([\w\-]+)$').firstMatch(line);
++      if (edgeMatch != null) {
++        final from = edgeMatch.group(1)!;
++        final to = edgeMatch.group(3)!;
++        final link = edgeMatch.group(2) ?? '-->';
++        final dashed = link.contains('.-');
++        // 标签：`-- 文本 -->` 或 `-->|文本|`。
++        String label = '';
++        final pipe = RegExp(r'\|(.*?)\|').firstMatch(link);
++        if (pipe != null) {
++          label = pipe.group(1) ?? '';
++        } else {
++          final dashLabel =
++              RegExp(r'--\s*(.*?)\s*(?:-->|--|-|\.\.>)').firstMatch(link);
++          if (dashLabel != null) {
++            label = dashLabel.group(1) ?? '';
++          }
++        }
++        edges.add(_MEdge(from, to, label: label.trim(), dashed: dashed));
++        continue;
++      }
++
++      // 节点定义：`ID[文本]` / `ID(文本)` / `ID{文本}`。
++      final nodeMatch =
++          RegExp(r'^([\w\-]+)\s*[\[\(\{](.*)[\]\)\}]$').firstMatch(line);
++      if (nodeMatch != null) {
++        final id = nodeMatch.group(1)!;
++        final text = nodeMatch.group(2)!.trim();
++        final open = line[line.indexOf(id) + id.length];
++        final shape = switch (open) {
++          '{' => _Shape.diamond,
++          '(' => _Shape.round,
++          _ => _Shape.rect,
++        };
++        nodes[id] = _MNode(id, text.isEmpty ? id : text, shape);
++        continue;
++      }
++
++      // 其它（例如 `id: text` 或 subgraph 声明）——尽力提取为文本节点。
++      final colonMatch = RegExp(r'^([\w\-]+)\s*:\s*(.*)$').firstMatch(line);
++      if (colonMatch != null) {
++        nodes[colonMatch.group(1)!] =
++            _MNode(colonMatch.group(1)!, colonMatch.group(2)!.trim(), _Shape.rect);
++      }
++    }
++
++    return _MermaidData(nodes: nodes, edges: edges, directionLr: directionLr);
++  }
++}
++
++class _MermaidData {
++  _MermaidData({required this.nodes, required this.edges, required this.directionLr});
++  final Map<String, _MNode> nodes;
++  final List<_MEdge> edges;
++  final bool directionLr;
++}
++
++class _MermaidView extends StatelessWidget {
++  const _MermaidView({required this.nodes, required this.edges});
++
++  final Map<String, _MNode> nodes;
++  final List<_MEdge> edges;
++
++  @override
++  Widget build(BuildContext context) {
++    // 依据边出现的先后顺序排布节点，保证箭头成链；未出现在边中的孤立节点
++    // 追加到末尾。
++    final ordered = <String>[];
++    void ensure(String id) {
++      if (!ordered.contains(id) && nodes.containsKey(id)) ordered.add(id);
++    }
++
++    for (final e in edges) {
++      ensure(e.from);
++      ensure(e.to);
++    }
++    for (final id in nodes.keys) {
++      ensure(id);
++    }
++    if (ordered.isEmpty) {
++      return _CodeFallback(definition: nodes.values.map((n) => n.text).join('\n'));
++    }
++
++    // label 查找表 (from,to) -> label。
++    final labels = <(String, String), String>{};
++    final dashedSet = <(String, String)>{};
++    for (final e in edges) {
++      labels[(e.from, e.to)] = e.label;
++      if (e.dashed) dashedSet.add((e.from, e.to));
++    }
++
++    final widgets = <Widget>[];
++    for (var i = 0; i < ordered.length; i++) {
++      final id = ordered[i];
++      final node = nodes[id]!;
++      widgets.add(Center(child: _nodeWidget(node)));
++      if (i < ordered.length - 1) {
++        final next = ordered[i + 1];
++        widgets.add(_connector(
++          label: labels[(id, next)] ?? labels[(next, id)] ?? '',
++          dashed: dashedSet.contains((id, next)) || dashedSet.contains((next, id)),
++        ));
++      }
++    }
++
++    return Container(
++      width: double.infinity,
++      constraints: const BoxConstraints(minHeight: 0),
++      decoration: BoxDecoration(
++        color: Theme.of(context).colorScheme.surfaceContainerHighest,
++        borderRadius: BorderRadius.circular(8),
++      ),
++      padding: const EdgeInsets.all(12),
++      margin: const EdgeInsets.symmetric(vertical: 4),
++      child: Column(
++        mainAxisSize: MainAxisSize.min,
++        children: widgets,
++      ),
++    );
++  }
++
++  Widget _nodeWidget(_MNode node) {
++    switch (node.shape) {
++      case _Shape.diamond:
++        return Transform.rotate(
++          angle: -0.785, // 45°，把方块旋成菱形
++          child: _box(node.text, borderRadius: BorderRadius.circular(4)),
++        );
++      case _Shape.round:
++        return _box(node.text, borderRadius: BorderRadius.circular(16));
++      case _Shape.rect:
++        return _box(node.text, borderRadius: BorderRadius.circular(4));
++    }
++  }
++
++  Widget _box(String text, {required BorderRadius borderRadius}) {
++    return Container(
++      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
++      decoration: BoxDecoration(
++        color: const Color(0xFFE3F2FD),
++        border: Border.all(color: const Color(0xFF607D8B)),
++        borderRadius: borderRadius,
++      ),
++      child: Text(text, textAlign: TextAlign.center),
++    );
++  }
++
++  Widget _connector({
++    required String label,
++    required bool dashed,
++  }) {
++    return Column(
++      mainAxisSize: MainAxisSize.min,
++      children: [
++        if (label.isNotEmpty)
++          Padding(
++            padding: const EdgeInsets.only(bottom: 2),
++            child: Text(label.trim(),
++                style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade700)),
++          ),
++        SizedBox(
++          height: 20,
++          child: CustomPaint(
++            painter: _ArrowPainter(dashed: dashed),
++            size: const Size(double.infinity, 20),
++          ),
++        ),
++      ],
++    );
++  }
++}
++
++/// 向下的箭头连线。
++class _ArrowPainter extends CustomPainter {
++  const _ArrowPainter({required this.dashed});
++  final bool dashed;
++
++  @override
++  void paint(Canvas canvas, Size size) {
++    final start = Offset(size.width / 2, 0);
++    final end = Offset(size.width / 2, size.height - 6);
++    final paint = Paint()
++      ..color = Colors.blueGrey
++      ..strokeWidth = 2
++      ..style = PaintingStyle.stroke;
++
++    if (dashed) {
++      final path = Path()..moveTo(start.dx, start.dy)..lineTo(end.dx, end.dy);
++      for (final metric in path.computeMetrics()) {
++        var d = 0.0;
++        while (d < metric.length) {
++          final part = metric.extractPath(
++            d,
++            (d + 6).clamp(0, metric.length),
++          );
++          canvas.drawPath(part, paint);
++          d += 6 + 4;
++        }
++      }
++    } else {
++      canvas.drawLine(start, end, paint);
++    }
++
++    final head = Path()
++      ..moveTo(end.dx - 5, end.dy - 2)
++      ..lineTo(end.dx, end.dy + 5)
++      ..lineTo(end.dx + 5, end.dy - 2)
++      ..close();
++    canvas.drawPath(head, Paint()..color = Colors.blueGrey);
++  }
++
++  @override
++  bool shouldRepaint(covariant _ArrowPainter old) => old.dashed != dashed;
++}
++
++/// 无法解析时的兜底展示（显示原始代码块，避免信息丢失）。
++class _CodeFallback extends StatelessWidget {
++  const _CodeFallback({required this.definition});
++  final String definition;
++  @override
++  Widget build(BuildContext context) {
++    return Container(
++      width: double.infinity,
++      padding: const EdgeInsets.all(12),
++      color: Theme.of(context).colorScheme.surfaceContainerHighest,
++      child: Text(definition, style: const TextStyle(fontFamily: 'monospace')),
++    );
++  }
++}
+\ No newline at end of file
+diff --git a/lib/ui/preview/preview_page.dart b/lib/ui/preview/preview_page.dart
+index e6e23cc..36633ae 100644
+--- a/lib/ui/preview/preview_page.dart
++++ b/lib/ui/preview/preview_page.dart
+@@ -3,7 +3,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
+ import 'package:markdown/markdown.dart' as md;
+ import 'package:cached_network_image/cached_network_image.dart';
+ 
++import '../../services/settings_service.dart';
+ import '../editor/export/export_service.dart';
++import 'latex_syntax.dart';
++import 'mermaid_renderer.dart';
+ 
+ /// Markdown 预览页。
+ ///
+@@ -22,6 +25,23 @@ class PreviewPage extends StatefulWidget {
+ class _PreviewPageState extends State<PreviewPage> {
+   final GlobalKey _renderKey = GlobalKey();
+   bool _exporting = false;
++  bool _mathJax = false;
++  bool _mermaid = false;
++
++  @override
++  void initState() {
++    super.initState();
++    _loadSettings();
++  }
++
++  Future<void> _loadSettings() async {
++    final s = await SettingsService.instance;
++    if (!mounted) return;
++    setState(() {
++      _mathJax = s.mathJax;
++      _mermaid = s.mermaid;
++    });
++  }
+ 
+   @override
+   Widget build(BuildContext context) {
+@@ -51,7 +71,14 @@ class _PreviewPageState extends State<PreviewPage> {
+                 selectable: true,
+                 builders: {
+                   'img': _ImageBuilder(),
++                  if (_mathJax) 'math': LatexElementBuilder(),
++                  if (_mathJax) 'math-block': LatexElementBuilder(display: true),
++                  if (_mermaid) 'mermaid': MermaidTagBuilder(),
+                 },
++                blockSyntaxes: _mermaid ? const [MermaidBlockSyntax()] : null,
++                inlineSyntaxes: _mathJax
++                    ? [LatexDisplayInlineSyntax(), LatexInlineSyntax()]
++                    : null,
+               ),
+             ),
+           ),
+diff --git a/pubspec.lock b/pubspec.lock
+index 91195ad..e7fb834 100644
+--- a/pubspec.lock
++++ b/pubspec.lock
+@@ -6,7 +6,7 @@ packages:
+     description:
+       name: archive
+       sha256: a96e8b390886ee8abb49b7bd3ac8df6f451c621619f52a26e815fdcf568959ff
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.9"
+   args:
+@@ -14,7 +14,7 @@ packages:
+     description:
+       name: args
+       sha256: d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.7.0"
+   async:
+@@ -22,7 +22,7 @@ packages:
+     description:
+       name: async
+       sha256: d2872f9c19731c2e5f10444b14686eb7cc85c76274bd6c16e1816bff9a3bab63
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.12.0"
+   barcode:
+@@ -30,7 +30,7 @@ packages:
+     description:
+       name: barcode
+       sha256: "7b6729c37e3b7f34233e2318d866e8c48ddb46c1f7ad01ff7bb2a8de1da2b9f4"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.9"
+   bidi:
+@@ -38,7 +38,7 @@ packages:
+     description:
+       name: bidi
+       sha256: "77f475165e94b261745cf1032c751e2032b8ed92ccb2bf5716036db79320637d"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.0.13"
+   boolean_selector:
+@@ -46,7 +46,7 @@ packages:
+     description:
+       name: boolean_selector
+       sha256: "8aab1771e1243a5063b8b0ff68042d67334e3feab9e95b9490f9a6ebf73b42ea"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.2"
+   cached_network_image:
+@@ -54,7 +54,7 @@ packages:
+     description:
+       name: cached_network_image
+       sha256: "7c1183e361e5c8b0a0f21a28401eecdbde252441106a9816400dd4c2b2424916"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.4.1"
+   cached_network_image_platform_interface:
+@@ -62,7 +62,7 @@ packages:
+     description:
+       name: cached_network_image_platform_interface
+       sha256: "35814b016e37fbdc91f7ae18c8caf49ba5c88501813f73ce8a07027a395e2829"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.1.1"
+   cached_network_image_web:
+@@ -70,7 +70,7 @@ packages:
+     description:
+       name: cached_network_image_web
+       sha256: "980842f4e8e2535b8dbd3d5ca0b1f0ba66bf61d14cc3a17a9b4788a3685ba062"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.3.1"
+   characters:
+@@ -78,7 +78,7 @@ packages:
+     description:
+       name: characters
+       sha256: f71061c654a3380576a52b451dd5532377954cf9dbd272a78fc8479606670803
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.4.0"
+   clock:
+@@ -86,7 +86,7 @@ packages:
+     description:
+       name: clock
+       sha256: fddb70d9b5277016c77a80201021d40a2247104d9f4aa7bab7157b7e3f05b84b
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.2"
+   collection:
+@@ -94,7 +94,7 @@ packages:
+     description:
+       name: collection
+       sha256: "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.19.1"
+   convert:
+@@ -102,7 +102,7 @@ packages:
+     description:
+       name: convert
+       sha256: b30acd5944035672bc15c6b7a8b47d773e41e2f17de064350988c5d02adb1c68
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.2"
+   cross_file:
+@@ -110,7 +110,7 @@ packages:
+     description:
+       name: cross_file
+       sha256: "942a4791cd385a68ccb3b32c71c427aba508a1bb949b86dff2adbe4049f16239"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.3.5"
+   crypto:
+@@ -118,7 +118,7 @@ packages:
+     description:
+       name: crypto
+       sha256: c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.7"
+   cupertino_icons:
+@@ -126,7 +126,7 @@ packages:
+     description:
+       name: cupertino_icons
+       sha256: ba631d1c7f7bef6b729a622b7b752645a2d076dba9976925b8f25725a30e1ee6
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.8"
+   dio:
+@@ -134,7 +134,7 @@ packages:
+     description:
+       name: dio
+       sha256: "0df44ebba85e503958eb75d07eedd3c86275a58c1d3eda2f2ce8f0a2c3abbb3c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "5.11.0"
+   dio_web_adapter:
+@@ -142,7 +142,7 @@ packages:
+     description:
+       name: dio_web_adapter
+       sha256: "0786d0b7295a373de356fc0af4f6f1d0ab2844ed31b19dfc5e7556b70e24212c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.1"
+   fake_async:
+@@ -150,7 +150,7 @@ packages:
+     description:
+       name: fake_async
+       sha256: "6a95e56b2449df2273fd8c45a662d6947ce1ebb7aafe80e550a3f68297f3cacc"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.3.2"
+   ffi:
+@@ -158,7 +158,7 @@ packages:
+     description:
+       name: ffi
+       sha256: "6d7fd89431262d8f3125e81b50d3847a091d846eafcd4fdb88dd06f36d705a45"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.0"
+   file:
+@@ -166,7 +166,7 @@ packages:
+     description:
+       name: file
+       sha256: a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "7.0.1"
+   file_selector:
+@@ -174,7 +174,7 @@ packages:
+     description:
+       name: file_selector
+       sha256: "5f1d15a7f17115038f433d1b0ea57513cc9e29a9d5338d166cb0bef3fa90a7a0"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.4"
+   file_selector_android:
+@@ -182,7 +182,7 @@ packages:
+     description:
+       name: file_selector_android
+       sha256: "1ce58b609289551f8ec07265476720e77d19764339cc1d8e4df3c4d34dac6499"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.5.1+17"
+   file_selector_ios:
+@@ -190,7 +190,7 @@ packages:
+     description:
+       name: file_selector_ios
+       sha256: fe9f52123af16bba4ad65bd7e03defbbb4b172a38a8e6aaa2a869a0c56a5f5fb
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.5.3+2"
+   file_selector_linux:
+@@ -198,7 +198,7 @@ packages:
+     description:
+       name: file_selector_linux
+       sha256: "54cbbd957e1156d29548c7d9b9ec0c0ebb6de0a90452198683a7d23aed617a33"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.3+2"
+   file_selector_macos:
+@@ -206,7 +206,7 @@ packages:
+     description:
+       name: file_selector_macos
+       sha256: "19124ff4a3d8864fdc62072b6a2ef6c222d55a3404fe14893a3c02744907b60c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.4+4"
+   file_selector_platform_interface:
+@@ -214,7 +214,7 @@ packages:
+     description:
+       name: file_selector_platform_interface
+       sha256: "35e0bd61ebcdb91a3505813b055b09b79dfdc7d0aee9c09a7ba59ae4bb13dc85"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.7.0"
+   file_selector_web:
+@@ -222,7 +222,7 @@ packages:
+     description:
+       name: file_selector_web
+       sha256: c4c0ea4224d97a60a7067eca0c8fd419e708ff830e0c83b11a48faf566cec3e7
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.4+2"
+   file_selector_windows:
+@@ -230,7 +230,7 @@ packages:
+     description:
+       name: file_selector_windows
+       sha256: "320fcfb6f33caa90f0b58380489fc5ac05d99ee94b61aa96ec2bff0ba81d3c2b"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.9.3+4"
+   fixnum:
+@@ -238,7 +238,7 @@ packages:
+     description:
+       name: fixnum
+       sha256: b6dc7065e46c974bc7c5f143080a6764ec7a4be6da1285ececdc37be96de53be
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.1"
+   flutter:
+@@ -251,7 +251,7 @@ packages:
+     description:
+       name: flutter_cache_manager
+       sha256: "400b6592f16a4409a7f2bb929a9a7e38c72cceb8ffb99ee57bbf2cb2cecf8386"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.4.1"
+   flutter_lints:
+@@ -259,7 +259,7 @@ packages:
+     description:
+       name: flutter_lints
+       sha256: "3f41d009ba7172d5ff9be5f6e6e6abb4300e263aab8866d2a0842ed2a70f8f0c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.0"
+   flutter_markdown:
+@@ -267,9 +267,25 @@ packages:
+     description:
+       name: flutter_markdown
+       sha256: "08fb8315236099ff8e90cb87bb2b935e0a724a3af1623000a9cec930468e0f27"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.7.7+1"
++  flutter_math_fork:
++    dependency: "direct main"
++    description:
++      name: flutter_math_fork
++      sha256: "6d5f2f1aa57ae539ffb0a04bb39d2da67af74601d685a161aff7ce5bda5fa407"
++      url: "https://pub.dev"
++    source: hosted
++    version: "0.7.4"
++  flutter_svg:
++    dependency: transitive
++    description:
++      name: flutter_svg
++      sha256: "055de8921be7b8e8b98a233c7a5ef84b3a6fcc32f46f1ebf5b9bb3576d108355"
++      url: "https://pub.dev"
++    source: hosted
++    version: "2.2.2"
+   flutter_test:
+     dependency: "direct dev"
+     description: flutter
+@@ -285,7 +301,7 @@ packages:
+     description:
+       name: http
+       sha256: "87721a4a50b19c7f1d49001e51409bddc46303966ce89a65af4f4e6004896412"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.6.0"
+   http_parser:
+@@ -293,7 +309,7 @@ packages:
+     description:
+       name: http_parser
+       sha256: "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.1.2"
+   image:
+@@ -301,7 +317,7 @@ packages:
+     description:
+       name: image
+       sha256: "4e973fcf4caae1a4be2fa0a13157aa38a8f9cb049db6529aa00b4d71abc4d928"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.5.4"
+   intl:
+@@ -309,7 +325,7 @@ packages:
+     description:
+       name: intl
+       sha256: d6f56758b7d3014a48af9701c085700aac781a92a87a62b1333b46d8879661cf
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.19.0"
+   leak_tracker:
+@@ -317,7 +333,7 @@ packages:
+     description:
+       name: leak_tracker
+       sha256: c35baad643ba394b40aac41080300150a4f08fd0fd6a10378f8f7c6bc161acec
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "10.0.8"
+   leak_tracker_flutter_testing:
+@@ -325,7 +341,7 @@ packages:
+     description:
+       name: leak_tracker_flutter_testing
+       sha256: f8b613e7e6a13ec79cfdc0e97638fddb3ab848452eff057653abd3edba760573
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.9"
+   leak_tracker_testing:
+@@ -333,7 +349,7 @@ packages:
+     description:
+       name: leak_tracker_testing
+       sha256: "6ba465d5d76e67ddf503e1161d1f4a6bc42306f9d66ca1e8f079a47290fb06d3"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.1"
+   lints:
+@@ -341,7 +357,7 @@ packages:
+     description:
+       name: lints
+       sha256: "976c774dd944a42e83e2467f4cc670daef7eed6295b10b36ae8c85bcbf828235"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.0.0"
+   markdown:
+@@ -349,7 +365,7 @@ packages:
+     description:
+       name: markdown
+       sha256: "935e23e1ff3bc02d390bad4d4be001208ee92cc217cb5b5a6c19bc14aaa318c1"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "7.3.0"
+   matcher:
+@@ -357,7 +373,7 @@ packages:
+     description:
+       name: matcher
+       sha256: dc58c723c3c24bf8d3e2d3ad3f2f9d7bd9cf43ec6feaa64181775e60190153f2
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.12.17"
+   material_color_utilities:
+@@ -365,7 +381,7 @@ packages:
+     description:
+       name: material_color_utilities
+       sha256: f7142bb1154231d7ea5f96bc7bde4bda2a0945d2806bb11670e30b850d56bdec
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.11.1"
+   meta:
+@@ -373,7 +389,7 @@ packages:
+     description:
+       name: meta
+       sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.16.0"
+   mime:
+@@ -381,7 +397,7 @@ packages:
+     description:
+       name: mime
+       sha256: bd47de35f07e27267e69c8c8b22edf9473bfee170a60d60fcc93730c5144b7f6
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.0"
+   nested:
+@@ -389,7 +405,7 @@ packages:
+     description:
+       name: nested
+       sha256: "03bac4c528c64c95c722ec99280375a6f2fc708eec17c7b3f07253b626cd2a20"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.0"
+   octo_image:
+@@ -397,7 +413,7 @@ packages:
+     description:
+       name: octo_image
+       sha256: "34faa6639a78c7e3cbe79be6f9f96535867e879748ade7d17c9b1ae7536293bd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.0"
+   path:
+@@ -405,7 +421,7 @@ packages:
+     description:
+       name: path
+       sha256: "75cca69d1490965be98c73ceaea117e8a04dd21217b37b292c9ddbec0d955bc5"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.9.1"
+   path_parsing:
+@@ -413,7 +429,7 @@ packages:
+     description:
+       name: path_parsing
+       sha256: "883402936929eac138ee0a45da5b0f2c80f89913e6dc3bf77eb65b84b409c6ca"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.0"
+   path_provider:
+@@ -421,7 +437,7 @@ packages:
+     description:
+       name: path_provider
+       sha256: "50c5dd5b6e1aaf6fb3a78b33f6aa3afca52bf903a8a5298f53101fdaee55bbcd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.5"
+   path_provider_android:
+@@ -429,7 +445,7 @@ packages:
+     description:
+       name: path_provider_android
+       sha256: "3b4c1fc3aa55ddc9cd4aa6759984330d5c8e66aa7702a6223c61540dc6380c37"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.19"
+   path_provider_foundation:
+@@ -437,7 +453,7 @@ packages:
+     description:
+       name: path_provider_foundation
+       sha256: "16eef174aacb07e09c351502740fa6254c165757638eba1e9116b0a781201bbd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.2"
+   path_provider_linux:
+@@ -445,7 +461,7 @@ packages:
+     description:
+       name: path_provider_linux
+       sha256: f7a1fe3a634fe7734c8d3f2766ad746ae2a2884abe22e241a8b301bf5cac3279
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.2.1"
+   path_provider_platform_interface:
+@@ -453,7 +469,7 @@ packages:
+     description:
+       name: path_provider_platform_interface
+       sha256: "88f5779f72ba699763fa3a3b06aa4bf6de76c8e5de842cf6f29e2e06476c2334"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.2"
+   path_provider_windows:
+@@ -461,7 +477,7 @@ packages:
+     description:
+       name: path_provider_windows
+       sha256: bd6f00dbd873bfb70d0761682da2b3a2c2fccc2b9e84c495821639601d81afe7
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.3.0"
+   pdf:
+@@ -469,7 +485,7 @@ packages:
+     description:
+       name: pdf
+       sha256: "28eacad99bffcce2e05bba24e50153890ad0255294f4dd78a17075a2ba5c8416"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.11.3"
+   pdf_widget_wrapper:
+@@ -477,7 +493,7 @@ packages:
+     description:
+       name: pdf_widget_wrapper
+       sha256: c930860d987213a3d58c7ec3b7ecf8085c3897f773e8dc23da9cae60a5d6d0f5
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.0.4"
+   petitparser:
+@@ -485,7 +501,7 @@ packages:
+     description:
+       name: petitparser
+       sha256: "07c8f0b1913bcde1ff0d26e57ace2f3012ccbf2b204e070290dad3bb22797646"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.1.0"
+   platform:
+@@ -493,7 +509,7 @@ packages:
+     description:
+       name: platform
+       sha256: "5d6b1b0036a5f331ebc77c850ebc8506cbc1e9416c27e59b439f917a902a4984"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.6"
+   plugin_platform_interface:
+@@ -501,7 +517,7 @@ packages:
+     description:
+       name: plugin_platform_interface
+       sha256: "4820fbfdb9478b1ebae27888254d445073732dae3d6ea81f0b7e06d5dedc3f02"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.8"
+   posix:
+@@ -509,7 +525,7 @@ packages:
+     description:
+       name: posix
+       sha256: bc1bad54ad2b735816e31f8d4600cfde6c7839975085ddfbca48b6c9f7c4044e
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.5.2"
+   printing:
+@@ -517,7 +533,7 @@ packages:
+     description:
+       name: printing
+       sha256: "689170c9ddb1bda85826466ba80378aa8993486d3c959a71cd7d2d80cb606692"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "5.14.3"
+   provider:
+@@ -525,7 +541,7 @@ packages:
+     description:
+       name: provider
+       sha256: "4e82183fa20e5ca25703ead7e05de9e4cceed1fbd1eadc1ac3cb6f565a09f272"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.1.5+1"
+   qr:
+@@ -533,7 +549,7 @@ packages:
+     description:
+       name: qr
+       sha256: "5a1d2586170e172b8a8c8470bbbffd5eb0cd38a66c0d77155ea138d3af3a4445"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.0.2"
+   rxdart:
+@@ -541,7 +557,7 @@ packages:
+     description:
+       name: rxdart
+       sha256: "5c3004a4a8dbb94bd4bf5412a4def4acdaa12e12f269737a5751369e12d1a962"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.28.0"
+   shared_preferences:
+@@ -549,7 +565,7 @@ packages:
+     description:
+       name: shared_preferences
+       sha256: "6e8bf70b7fef813df4e9a36f658ac46d107db4b4cfe1048b477d4e453a8159f5"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.5.3"
+   shared_preferences_android:
+@@ -557,7 +573,7 @@ packages:
+     description:
+       name: shared_preferences_android
+       sha256: bd14436108211b0d4ee5038689a56d4ae3620fd72fd6036e113bf1345bc74d9e
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.13"
+   shared_preferences_foundation:
+@@ -565,7 +581,7 @@ packages:
+     description:
+       name: shared_preferences_foundation
+       sha256: "6a52cfcdaeac77cad8c97b539ff688ccfc458c007b4db12be584fbe5c0e49e03"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.5.4"
+   shared_preferences_linux:
+@@ -573,7 +589,7 @@ packages:
+     description:
+       name: shared_preferences_linux
+       sha256: "580abfd40f415611503cae30adf626e6656dfb2f0cee8f465ece7b6defb40f2f"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   shared_preferences_platform_interface:
+@@ -581,7 +597,7 @@ packages:
+     description:
+       name: shared_preferences_platform_interface
+       sha256: "57cbf196c486bc2cf1f02b85784932c6094376284b3ad5779d1b1c6c6a816b80"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   shared_preferences_web:
+@@ -589,7 +605,7 @@ packages:
+     description:
+       name: shared_preferences_web
+       sha256: c49bd060261c9a3f0ff445892695d6212ff603ef3115edbb448509d407600019
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.3"
+   shared_preferences_windows:
+@@ -597,7 +613,7 @@ packages:
+     description:
+       name: shared_preferences_windows
+       sha256: "94ef0f72b2d71bc3e700e025db3710911bd51a71cefb65cc609dd0d9a982e3c1"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   sky_engine:
+@@ -610,7 +626,7 @@ packages:
+     description:
+       name: source_span
+       sha256: "254ee5351d6cb365c859e20ee823c3bb479bf4a293c22d17a9f1bf144ce86f7c"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.10.1"
+   sqflite:
+@@ -618,7 +634,7 @@ packages:
+     description:
+       name: sqflite
+       sha256: e2297b1da52f127bc7a3da11439985d9b536f75070f3325e62ada69a5c585d03
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.2"
+   sqflite_android:
+@@ -626,7 +642,7 @@ packages:
+     description:
+       name: sqflite_android
+       sha256: "2b3070c5fa881839f8b402ee4a39c1b4d561704d4ebbbcfb808a119bc2a1701b"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   sqflite_common:
+@@ -634,7 +650,7 @@ packages:
+     description:
+       name: sqflite_common
+       sha256: "84731e8bfd8303a3389903e01fb2141b6e59b5973cacbb0929021df08dddbe8b"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.5.5"
+   sqflite_common_ffi:
+@@ -642,7 +658,7 @@ packages:
+     description:
+       name: sqflite_common_ffi
+       sha256: "9faa2fedc5385ef238ce772589f7718c24cdddd27419b609bb9c6f703ea27988"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.3.6"
+   sqflite_darwin:
+@@ -650,7 +666,7 @@ packages:
+     description:
+       name: sqflite_darwin
+       sha256: "279832e5cde3fe99e8571879498c9211f3ca6391b0d818df4e17d9fff5c6ccb3"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.2"
+   sqflite_platform_interface:
+@@ -658,7 +674,7 @@ packages:
+     description:
+       name: sqflite_platform_interface
+       sha256: "8dd4515c7bdcae0a785b0062859336de775e8c65db81ae33dd5445f35be61920"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.0"
+   sqlite3:
+@@ -666,7 +682,7 @@ packages:
+     description:
+       name: sqlite3
+       sha256: "3145bd74dcdb4fd6f5c6dda4d4e4490a8087d7f286a14dee5d37087290f0f8a2"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.9.4"
+   stack_trace:
+@@ -674,7 +690,7 @@ packages:
+     description:
+       name: stack_trace
+       sha256: "8b27215b45d22309b5cddda1aa2b19bdfec9df0e765f2de506401c071d38d1b1"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.12.1"
+   stream_channel:
+@@ -682,7 +698,7 @@ packages:
+     description:
+       name: stream_channel
+       sha256: "969e04c80b8bcdf826f8f16579c7b14d780458bd97f56d107d3950fdbeef059d"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.4"
+   string_scanner:
+@@ -690,7 +706,7 @@ packages:
+     description:
+       name: string_scanner
+       sha256: "921cd31725b72fe181906c6a94d987c78e3b98c2e205b397ea399d4054872b43"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.4.1"
+   synchronized:
+@@ -698,7 +714,7 @@ packages:
+     description:
+       name: synchronized
+       sha256: "0669c70faae6270521ee4f05bffd2919892d42d1276e6c495be80174b6bc0ef6"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.3.1"
+   term_glyph:
+@@ -706,7 +722,7 @@ packages:
+     description:
+       name: term_glyph
+       sha256: "7f554798625ea768a7518313e58f83891c7f5024f88e46e7182a4558850a4b8e"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.2.2"
+   test_api:
+@@ -714,15 +730,23 @@ packages:
+     description:
+       name: test_api
+       sha256: fb31f383e2ee25fbbfe06b40fe21e1e458d14080e3c67e7ba0acfde4df4e0bbd
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "0.7.4"
++  tuple:
++    dependency: transitive
++    description:
++      name: tuple
++      sha256: a97ce2013f240b2f3807bcbaf218765b6f301c3eff91092bcfa23a039e7dd151
++      url: "https://pub.dev"
++    source: hosted
++    version: "2.0.2"
+   typed_data:
+     dependency: transitive
+     description:
+       name: typed_data
+       sha256: f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.4.0"
+   url_launcher:
+@@ -730,7 +754,7 @@ packages:
+     description:
+       name: url_launcher
+       sha256: f6a7e5c4835bb4e3026a04793a4199ca2d14c739ec378fdfe23fc8075d0439f8
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.3.2"
+   url_launcher_android:
+@@ -738,7 +762,7 @@ packages:
+     description:
+       name: url_launcher_android
+       sha256: "81777b08c498a292d93ff2feead633174c386291e35612f8da438d6e92c4447e"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.3.20"
+   url_launcher_ios:
+@@ -746,7 +770,7 @@ packages:
+     description:
+       name: url_launcher_ios
+       sha256: d80b3f567a617cb923546034cc94bfe44eb15f989fe670b37f26abdb9d939cb7
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.3.4"
+   url_launcher_linux:
+@@ -754,7 +778,7 @@ packages:
+     description:
+       name: url_launcher_linux
+       sha256: "4e9ba368772369e3e08f231d2301b4ef72b9ff87c31192ef471b380ef29a4935"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.2.1"
+   url_launcher_macos:
+@@ -762,7 +786,7 @@ packages:
+     description:
+       name: url_launcher_macos
+       sha256: c043a77d6600ac9c38300567f33ef12b0ef4f4783a2c1f00231d2b1941fea13f
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.2.3"
+   url_launcher_platform_interface:
+@@ -770,7 +794,7 @@ packages:
+     description:
+       name: url_launcher_platform_interface
+       sha256: "552f8a1e663569be95a8190206a38187b531910283c3e982193e4f2733f01029"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.3.2"
+   url_launcher_web:
+@@ -778,7 +802,7 @@ packages:
+     description:
+       name: url_launcher_web
+       sha256: "4bd2b7b4dc4d4d0b94e5babfffbca8eac1a126c7f3d6ecbc1a11013faa3abba2"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.4.1"
+   url_launcher_windows:
+@@ -786,7 +810,7 @@ packages:
+     description:
+       name: url_launcher_windows
+       sha256: "3284b6d2ac454cf34f114e1d3319866fdd1e19cdc329999057e44ffe936cfa77"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "3.1.4"
+   uuid:
+@@ -794,15 +818,39 @@ packages:
+     description:
+       name: uuid
+       sha256: "9b129329f58692f6e6578329498a8fe9fbe98f090beb764ffbb8ee2eadd01dcd"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "4.6.0"
++  vector_graphics:
++    dependency: transitive
++    description:
++      name: vector_graphics
++      sha256: a4f059dc26fc8295b5921376600a194c4ec7d55e72f2fe4c7d2831e103d461e6
++      url: "https://pub.dev"
++    source: hosted
++    version: "1.1.19"
++  vector_graphics_codec:
++    dependency: transitive
++    description:
++      name: vector_graphics_codec
++      sha256: "99fd9fbd34d9f9a32efd7b6a6aae14125d8237b10403b422a6a6dfeac2806146"
++      url: "https://pub.dev"
++    source: hosted
++    version: "1.1.13"
++  vector_graphics_compiler:
++    dependency: transitive
++    description:
++      name: vector_graphics_compiler
++      sha256: d354a7ec6931e6047785f4db12a1f61ec3d43b207fc0790f863818543f8ff0dc
++      url: "https://pub.dev"
++    source: hosted
++    version: "1.1.19"
+   vector_math:
+     dependency: transitive
+     description:
+       name: vector_math
+       sha256: "80b3257d1492ce4d091729e3a67a60407d227c27241d6927be0130c98e741803"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "2.1.4"
+   vm_service:
+@@ -810,7 +858,7 @@ packages:
+     description:
+       name: vm_service
+       sha256: "0968250880a6c5fe7edc067ed0a13d4bae1577fe2771dcf3010d52c4a9d3ca14"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "14.3.1"
+   web:
+@@ -818,7 +866,7 @@ packages:
+     description:
+       name: web
+       sha256: "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.1"
+   webdav_client:
+@@ -826,7 +874,7 @@ packages:
+     description:
+       name: webdav_client
+       sha256: "682fffc50b61dc0e8f46717171db03bf9caaa17347be41c0c91e297553bf86b2"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.2.2"
+   xdg_directories:
+@@ -834,7 +882,7 @@ packages:
+     description:
+       name: xdg_directories
+       sha256: "7a3f37b05d989967cdddcbb571f1ea834867ae2faa29725fd085180e0883aa15"
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "1.1.0"
+   xml:
+@@ -842,7 +890,7 @@ packages:
+     description:
+       name: xml
+       sha256: b015a8ad1c488f66851d762d3090a21c600e479dc75e68328c52774040cf9226
+-      url: "https://pub.flutter-io.cn"
++      url: "https://pub.dev"
+     source: hosted
+     version: "6.5.0"
+ sdks:
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 97e8433..904d4b4 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -66,6 +66,7 @@ dependencies:
+ 
+   # 其他
+   url_launcher: ^6.3.0
++  flutter_math_fork: ^0.7.4
+ 
+ dev_dependencies:
+   flutter_test:
+-- 
+2.43.0
+

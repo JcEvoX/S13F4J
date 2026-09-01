@@ -1,0 +1,92 @@
+From 77a783f769525cc2e2abc619e63ad1d36a4cefd4 Mon Sep 17 00:00:00 2001
+From: JcEvoX <JcEvoX@users.noreply.github.com>
+Date: Mon, 31 Aug 2026 11:45:59 +0000
+Subject: [PATCH 08/18] =?UTF-8?q?ci:=20release=20=E7=89=88=E6=9C=AC?=
+ =?UTF-8?q?=E5=8F=B7=E5=9F=BA=E4=BA=8E=20commit=20=E8=AE=A1=E6=95=B0?=
+ =?UTF-8?q?=E8=87=AA=E5=8A=A8=E7=94=9F=E6=88=90=EF=BC=88base.commit=5Fnum.?=
+ =?UTF-8?q?r=E7=9F=ADhash=EF=BC=89=EF=BC=8C=E6=97=A0=20tag=20=E9=BB=98?=
+ =?UTF-8?q?=E8=AE=A4=200.0.1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .github/workflows/release.yml | 40 +++++++++++++++++++++++++++++------
+ 1 file changed, 34 insertions(+), 6 deletions(-)
+
+diff --git a/.github/workflows/release.yml b/.github/workflows/release.yml
+index 7dc09ed..35f7714 100644
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -23,6 +23,9 @@ jobs:
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v4
++        with:
++          # 需要完整历史 + tags 来计算版本号（基于 commit 计数）
++          fetch-depth: 0
+ 
+       - name: Set up JDK 17
+         uses: actions/setup-java@v4
+@@ -60,26 +63,51 @@ jobs:
+       #     storeFile=../signing-key.jks
+       #     EOF
+ 
++      - name: Compute version
++        # 版本名 = <距最近 v* tag 的提交数>.<短 commit id>，基准为最近的大版本 tag（无 tag 用 0.0.1）。
++        # 例：最近 tag v1.2.0、其后 5 次提交、HEAD=3f2a1b7 -> versionName=1.2.0.5.r3f2a1b7
++        # versionCode 用总提交数，保证单调递增（Android 要求整型递增）。
++        id: version
++        run: |
++          BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "0.0.1")
++          if [ "$BASE" = "0.0.1" ]; then
++            COMMIT_NUM=$(git rev-list --count HEAD)
++          else
++            COMMIT_NUM=$(git rev-list --count "$BASE"..HEAD)
++          fi
++          SHORT=$(git rev-parse --short=7 HEAD)
++          VERSION_NAME="${BASE#v}.${COMMIT_NUM}.r${SHORT}"
++          VERSION_CODE=$(git rev-list --count HEAD)
++          echo "base=$BASE"
++          echo "commit_num=$COMMIT_NUM"
++          echo "version_name=$VERSION_NAME"
++          echo "version_code=$VERSION_CODE"
++          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
++          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
++
+       - name: Build release APKs (split by ABI)
+         # --split-per-abi：分别产出 arm64-v8a / armeabi-v7a / x86_64 的独立 APK，
+         # 相比通用 fat APK 体积可缩减约 60%~70%，用户按设备架构下载安装。
+-        run: flutter build apk --release --split-per-abi
++        run: flutter build apk --release --split-per-abi --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
+ 
+       - name: Build release AAB
+-        run: flutter build appbundle --release
++        run: flutter build appbundle --release --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
+ 
+       - name: Package artifacts
++        env:
++          VER: ${{ steps.version.outputs.version_name }}
+         run: |
+           mkdir -p dist
+-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk dist/
+-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk dist/
+-          cp build/app/outputs/flutter-apk/app-x86_64-release.apk dist/
+-          cp build/app/outputs/bundle/release/app-release.aab dist/
++          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/NotePad-${VER}-arm64-v8a.apk"
++          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/NotePad-${VER}-armeabi-v7a.apk"
++          cp build/app/outputs/flutter-apk/app-x86_64-release.apk "dist/NotePad-${VER}-x86_64.apk"
++          cp build/app/outputs/bundle/release/app-release.aab "dist/NotePad-${VER}.aab"
+           ls -lh dist/
+ 
+       - name: Publish GitHub Release
+         uses: softprops/action-gh-release@v2
+         with:
++          name: NotePad ${{ steps.version.outputs.version_name }}
+           files: dist/*
+           generate_release_notes: true
+           draft: true
+\ No newline at end of file
+-- 
+2.43.0
+
