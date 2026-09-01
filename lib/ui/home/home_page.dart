@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/note.dart';
 import '../../state/note_provider.dart';
 import '../../widgets/node_icon.dart';
+import '../../widgets/wallpaper_background.dart';
 import '../editor/editor_page.dart';
 import '../webdav/webdav_page.dart';
 import '../recyclebin/recyclebin_page.dart';
@@ -103,7 +104,9 @@ class _HomePageState extends State<HomePage> {
               )
             : null,
       ),
-      body: _buildBody(provider),
+      body: WallpaperBackground(
+        child: _buildBody(provider),
+      ),
       floatingActionButton: provider.selectionMode
           ? null
           : FloatingActionButton(

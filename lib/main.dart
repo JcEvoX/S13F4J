@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'services/backup_service.dart';
 import 'state/note_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'ui/home/home_page.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // 启动周期自动备份（应用运行期间）。
+  AutoBackupService.instance.start();
   runApp(const NotePadApp());
 }
 

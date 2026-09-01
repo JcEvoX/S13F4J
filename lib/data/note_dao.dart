@@ -212,4 +212,110 @@ class NoteDao {
     );
     return rows.map(NotePadNode.fromMap).toList();
   }
+
+  // ---- 最近 / 统计 / 备份 ----
+
+  /// 最近编辑的文章（仅未回收的文章节点，按更新时间倒序）。
+  Future<List<NotePadNode>> recentArticles({int limit = 50}) async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(
+      AppDatabase.tableNode,
+      where: 'is_folder = 0 AND is_recycled = 0',
+      orderBy: 'updated_at DESC',
+      limit: limit,
+    );
+    return rows.map(NotePadNode.fromMap).toList();
+  }
+
+  /// 读取全部节点（含回收站，导出备份用）。
+  Future<List<NotePadNode>> allNodes() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(AppDatabase.tableNode);
+    return rows.map(NotePadNode.fromMap).toList();
+  }
+
+  /// 统计信息汇总。
+  Future<NoteStatistics> statistics() async {
+    final db = await AppDatabase.instance;
+    final rows = await db.query(AppDatabase.tableNode);
+    var folders = 0;
+    var articles = 0;
+    var words = 0;
+    var recycled = 0;
+    var lastEdited = 0;
+    for (final r in rows) {
+      final n = NotePadNode.fromMap(r);
+      if (n.isRecycled) {
+        recycled++;
+        continue;
+      }
+      if (n.isFolder) {
+        folders++;
+      } else {
+        articles++;
+        words += _countWords(n.content);
+      }
+      if (n.updatedAt > lastEdited) lastEdited = n.updatedAt;
+    }
+    return NoteStatistics(
+      folders: folders,
+      articles: articles,
+      words: words,
+      recycled: recycled,
+      lastEditedAt: lastEdited,
+    );
+  }
+
+  /// 统计字数（与编辑器一致：中文字符 + 英文单词）。
+  int _countWords(String text) {
+    final cn = RegExp(r'[\u4e00-\u9fa5]').allMatches(text).length;
+    final en = text
+        .replaceAll(RegExp(r'[\u4e00-\u9fa5]'), ' ')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .length;
+    return cn + en;
+  }
+
+  /// 恢复备份：清空现有数据并整库写入（事务内完成）。
+  Future<void> replaceAll(List<NotePadNode> nodes) async {
+    final db = await AppDatabase.instance;
+    await db.transaction((txn) async {
+      await txn.delete(AppDatabase.tableNode);
+      for (final n in nodes) {
+        await txn.insert(
+          AppDatabase.tableNode,
+          n.toMap(),
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+}
+
+/// 统计结果。
+class NoteStatistics {
+  const NoteStatistics({
+    required this.folders,
+    required this.articles,
+    required this.words,
+    required this.recycled,
+    required this.lastEditedAt,
+  });
+
+  /// 文件夹数量。
+  final int folders;
+
+  /// 文章数量。
+  final int articles;
+
+  /// 总字数。
+  final int words;
+
+  /// 回收站节点数量。
+  final int recycled;
+
+  /// 最近编辑时间（毫秒，0 表示无数据）。
+  final int lastEditedAt;
 }

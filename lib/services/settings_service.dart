@@ -18,11 +18,16 @@ class SettingsService {
 
   static const _kThemeMode = 'pref_theme_mode';
   static const _kEditorFontSize = 'pref_editor_font_size';
+  static const _kEditorFontFamily = 'pref_editor_font_family';
   static const _kScaleEditorFont = 'pref_editor_scale_font';
   static const _kAutoFirstLineIndent = 'pref_auto_first_line_indent';
   static const _kStartPage = 'pref_start_page';
   static const _kWallpaper = 'pref_wallpaper_path';
   static const _kBackupFolder = 'pref_backup_folder_path';
+  static const _kBackupFolderName = 'pref_backup_folder_name';
+  static const _kAutoBackupLocal = 'pref_auto_backup_local';
+  static const _kAutoBackupWebdav = 'pref_auto_backup_to_webdav';
+  static const _kMarkdownParseHtml = 'pref_markdown_parse_html';
   static const _kWordCount = 'pref_show_word_count';
 
   static SettingsService? _instance;
@@ -49,6 +54,17 @@ class SettingsService {
 
   Future<void> setEditorFontSize(double v) =>
       _prefs.setDouble(_kEditorFontSize, v);
+
+  /// 编辑器字体族（'system' 表示跟随系统）。
+  String get editorFontFamily => _prefs.getString(_kEditorFontFamily) ?? 'system';
+
+  Future<void> setEditorFontFamily(String v) =>
+      _prefs.setString(_kEditorFontFamily, v);
+
+  Future<void> resetEditorFont() async {
+    await setEditorFontFamily('system');
+    await setEditorFontSize(17.0);
+  }
 
   bool get scaleEditorFont => _prefs.getBool(_kScaleEditorFont) ?? true;
 
@@ -83,6 +99,32 @@ class SettingsService {
     if (path == null) return _prefs.remove(_kBackupFolder);
     return _prefs.setString(_kBackupFolder, path);
   }
+
+  /// 备份文件夹显示名（用户选择的目录名，便于界面展示）。
+  String? get backupFolderName => _prefs.getString(_kBackupFolderName);
+
+  Future<void> setBackupFolderName(String? name) {
+    if (name == null) return _prefs.remove(_kBackupFolderName);
+    return _prefs.setString(_kBackupFolderName, name);
+  }
+
+  /// 自动备份到本地文件夹。
+  bool get autoBackupLocal => _prefs.getBool(_kAutoBackupLocal) ?? false;
+
+  Future<void> setAutoBackupLocal(bool v) =>
+      _prefs.setBool(_kAutoBackupLocal, v);
+
+  /// 自动备份到 WebDAV。
+  bool get autoBackupToWebdav => _prefs.getBool(_kAutoBackupWebdav) ?? true;
+
+  Future<void> setAutoBackupToWebdav(bool v) =>
+      _prefs.setBool(_kAutoBackupWebdav, v);
+
+  /// Markdown 预览是否解析内嵌 HTML。
+  bool get markdownParseHtml => _prefs.getBool(_kMarkdownParseHtml) ?? true;
+
+  Future<void> setMarkdownParseHtml(bool v) =>
+      _prefs.setBool(_kMarkdownParseHtml, v);
 
   bool get showWordCount => _prefs.getBool(_kWordCount) ?? true;
 

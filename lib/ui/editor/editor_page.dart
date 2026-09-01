@@ -126,6 +126,9 @@ class _EditorPageState extends State<EditorPage> {
     }
     final settings = _settings!;
     final fontSize = settings.scaleEditorFont ? settings.editorFontSize : 17.0;
+    final fontFamily = settings.editorFontFamily == 'system'
+        ? null
+        : settings.editorFontFamily;
 
     return Scaffold(
       appBar: AppBar(
@@ -166,7 +169,7 @@ class _EditorPageState extends State<EditorPage> {
                 focusNode: _focus,
                 maxLines: null,
                 keyboardType: TextInputType.multiline,
-                style: TextStyle(fontSize: fontSize, height: 1.7),
+                style: TextStyle(fontSize: fontSize, height: 1.7, fontFamily: fontFamily),
                 decoration: const InputDecoration(
                   border: InputBorder.none,
                   hintText: '开始书写，半角 # 表示标题…',

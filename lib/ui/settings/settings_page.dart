@@ -3,7 +3,15 @@ import 'package:provider/provider.dart';
 
 import '../../services/settings_service.dart';
 import '../../theme/theme_controller.dart';
+import '../../theme/wallpapers.dart';
 import '../about/about_page.dart';
+import '../backuprestore/backup_restore_page.dart';
+import '../preview/markdown_preview_settings_page.dart';
+import '../recent/recent_page.dart';
+import '../statistics/statistics_page.dart';
+import '../theme/editor_font_page.dart';
+import '../theme/wallpaper_page.dart';
+import '../webdav/webdav_page.dart';
 
 /// 设置主页面。
 ///
@@ -43,20 +51,44 @@ class _SettingsPageState extends State<SettingsPage> {
                 _buildThemeMode(s),
                 ListTile(
                   leading: const Icon(Icons.font_download_outlined),
-                  title: const Text('编辑器字体与大小'),
-                  onTap: () => _toast('字体设置（可在编辑器内调整字号）'),
+                  title: const Text('编辑器字体'),
+                  subtitle: Text('${s.editorFontSize.round()} 号'),
+                  onTap: () => _push(const EditorFontPage()),
                 ),
                 ListTile(
                   leading: const Icon(Icons.wallpaper),
                   title: const Text('壁纸'),
-                  trailing: Switch(
-                    value: s.wallpaper != null,
-                    onChanged: (v) {
-                      s.setWallpaper(v ? 'builtin' : null);
-                      setState(() {});
-                    },
+                  subtitle: Text(
+                    wallpaperByKey(s.wallpaper)?.title ?? '跟随系统',
                   ),
-                  onTap: () => _toast('壁纸设置（示例）'),
+                  onTap: () => _push(const WallpaperPage()),
+                ),
+                const Divider(),
+                _section('数据'),
+                ListTile(
+                  leading: const Icon(Icons.insert_chart_outlined),
+                  title: const Text('统计'),
+                  onTap: () => _push(const StatisticsPage()),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.history),
+                  title: const Text('最近编辑的文章'),
+                  onTap: () => _push(const RecentPage()),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.backup_outlined),
+                  title: const Text('备份和恢复'),
+                  subtitle: Text(
+                    s.autoBackupLocal || s.autoBackupToWebdav
+                        ? '自动备份已开启'
+                        : '未开启自动备份',
+                  ),
+                  onTap: () => _push(const BackupRestorePage()),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.cloud_outlined),
+                  title: const Text('我的 WebDAV'),
+                  onTap: () => _push(const WebDavPage()),
                 ),
                 const Divider(),
                 _section('编辑'),
@@ -86,6 +118,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     s.setShowWordCount(v);
                     setState(() {});
                   },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.preview_outlined),
+                  title: const Text('Markdown 预览设置'),
+                  onTap: () => _push(const MarkdownPreviewSettingsPage()),
                 ),
                 const Divider(),
                 _section('启动'),
@@ -120,6 +157,10 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         ),
       );
+
+  void _push(Widget page) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+  }
 
   Widget _buildThemeMode(SettingsService s) {
     final map = {
@@ -183,9 +224,5 @@ class _SettingsPageState extends State<SettingsPage> {
       await s.setStartPage(selected);
       if (mounted) setState(() {});
     }
-  }
-
-  void _toast(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 }
