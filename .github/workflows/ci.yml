@@ -56,16 +56,18 @@ jobs:
       - name: Run tests
         run: flutter test
 
-      - name: Build debug APK
+      - name: Build debug APKs (split by ABI)
         if: matrix.platform == 'android'
-        run: flutter build apk --debug
+        # 与 release 一致按 ABI 拆分，避免产出塞入所有架构的 fat APK。
+        # abiFilters 限定 arm64-v8a / armeabi-v7a，产物为两个独立 debug APK。
+        run: flutter build apk --debug --split-per-abi
 
-      - name: Upload debug APK artifact
+      - name: Upload debug APK artifacts
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@v4
         with:
           name: notepad-debug-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: build/app/outputs/flutter-apk/app-*-debug.apk
           if-no-files-found: error
 
   ios:
