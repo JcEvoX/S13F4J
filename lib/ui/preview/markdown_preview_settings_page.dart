@@ -49,6 +49,26 @@ class _MarkdownPreviewSettingsPageState extends State<MarkdownPreviewSettingsPag
                     setState(() {});
                   },
                 ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.functions),
+                  title: const Text('MathJax 数学公式'),
+                  subtitle: const Text(r'渲染 $...$ 行内与块级 LaTeX 公式'),
+                  value: s.mathJax,
+                  onChanged: (v) {
+                    s.setMathJax(v);
+                    setState(() {});
+                  },
+                ),
+                SwitchListTile(
+                  secondary: const Icon(Icons.schema_outlined),
+                  title: const Text('Mermaid 流程图'),
+                  subtitle: const Text('渲染 ```mermaid 代码块'),
+                  value: s.mermaid,
+                  onChanged: (v) {
+                    s.setMermaid(v);
+                    setState(() {});
+                  },
+                ),
                 const Divider(),
                 ListTile(
                   leading: const Icon(Icons.help_outline),

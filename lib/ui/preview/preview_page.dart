@@ -3,7 +3,10 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'package:cached_network_image/cached_network_image.dart';
 
+import '../../services/settings_service.dart';
 import '../editor/export/export_service.dart';
+import 'latex_syntax.dart';
+import 'mermaid_renderer.dart';
 
 /// Markdown 预览页。
 ///
@@ -22,6 +25,23 @@ class PreviewPage extends StatefulWidget {
 class _PreviewPageState extends State<PreviewPage> {
   final GlobalKey _renderKey = GlobalKey();
   bool _exporting = false;
+  bool _mathJax = false;
+  bool _mermaid = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final s = await SettingsService.instance;
+    if (!mounted) return;
+    setState(() {
+      _mathJax = s.mathJax;
+      _mermaid = s.mermaid;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +71,14 @@ class _PreviewPageState extends State<PreviewPage> {
                 selectable: true,
                 builders: {
                   'img': _ImageBuilder(),
+                  if (_mathJax) 'math': LatexElementBuilder(),
+                  if (_mathJax) 'math-block': LatexElementBuilder(display: true),
+                  if (_mermaid) 'mermaid': MermaidTagBuilder(),
                 },
+                blockSyntaxes: _mermaid ? const [MermaidBlockSyntax()] : null,
+                inlineSyntaxes: _mathJax
+                    ? [LatexDisplayInlineSyntax(), LatexInlineSyntax()]
+                    : null,
               ),
             ),
           ),

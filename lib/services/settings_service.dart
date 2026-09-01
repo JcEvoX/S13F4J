@@ -28,6 +28,8 @@ class SettingsService {
   static const _kAutoBackupLocal = 'pref_auto_backup_local';
   static const _kAutoBackupWebdav = 'pref_auto_backup_to_webdav';
   static const _kMarkdownParseHtml = 'pref_markdown_parse_html';
+  static const _kMathJax = 'mathjax';
+  static const _kMermaid = 'mermaid';
   static const _kWordCount = 'pref_show_word_count';
 
   static SettingsService? _instance;
@@ -125,6 +127,16 @@ class SettingsService {
 
   Future<void> setMarkdownParseHtml(bool v) =>
       _prefs.setBool(_kMarkdownParseHtml, v);
+
+  /// 预览是否渲染 MathJax 数学公式（对应原 Pro 功能 `mathjax`）。
+  bool get mathJax => _prefs.getBool(_kMathJax) ?? false;
+
+  Future<void> setMathJax(bool v) => _prefs.setBool(_kMathJax, v);
+
+  /// 预览是否渲染 Mermaid 流程图（对应原 Pro 功能 `mermaid`）。
+  bool get mermaid => _prefs.getBool(_kMermaid) ?? false;
+
+  Future<void> setMermaid(bool v) => _prefs.setBool(_kMermaid, v);
 
   bool get showWordCount => _prefs.getBool(_kWordCount) ?? true;
 
