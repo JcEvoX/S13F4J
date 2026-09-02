@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../models/note.dart';
 import '../../state/note_provider.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/node_icon.dart';
 import '../../widgets/wallpaper_background.dart';
 import '../editor/editor_page.dart';
@@ -60,10 +61,34 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// 先取好可选目标文件夹，再弹出选择弹窗。
+  ///
+  /// 关键点：文件夹列表在 showDialog 之前就 `await` 取完，
+  /// 弹窗构建时同步拿到数据，不在 initState 里异步触发 setState，
+  /// 避免出现「点击移动后无弹窗 / 锁屏」的问题。
   Future<void> _showMoveDialog(List<NotePadNode> targets) async {
+    debugPrint('[MoveDialog] 打开移动弹窗，目标 ${targets.length} 项');
+    final provider = context.read<NoteProvider>();
+    List<NotePadNode> folders;
+    try {
+      folders = await provider.allFolders();
+    } catch (e) {
+      debugPrint('[MoveDialog] 加载目标文件夹失败: $e');
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('加载目标文件夹失败，请重试')),
+      );
+      return;
+    }
+    // 从可选目标里排除「选中的文件夹本身」，避免把文件夹移进自己。
+    final excludeIds =
+        targets.where((t) => t.isFolder).map((t) => t.id).toSet();
+    final eligible = folders.where((f) => !excludeIds.contains(f.id)).toList();
+    debugPrint('[MoveDialog] 可选目标文件夹 ${eligible.length} 个');
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (ctx) => _MoveDialog(targets: targets),
+      builder: (ctx) => _MoveDialog(targets: targets, folders: eligible),
     );
   }
 
@@ -270,27 +295,37 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildTile(BuildContext context, NoteProvider provider, NotePadNode node) {
     final selected = provider.selectedIds.contains(node.id);
-    return Card(
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isFolder = node.isFolder;
+    final dim = isDark ? Colors.white54 : Colors.grey.shade600;
+    final preview = _subtitle(node);
+
+    final Widget trailing;
+    if (provider.selectionMode) {
+      trailing = Icon(
+        selected ? Icons.check_circle : Icons.radio_button_unchecked,
+        color: selected ? scheme.primary : dim,
+        size: 22,
+      );
+    } else if (isFolder) {
+      trailing = Icon(Icons.chevron_right, size: 20, color: dim);
+    } else {
+      trailing = ReorderableDragStartListener(
+        index: provider.nodes.indexOf(node),
+        child: Icon(Icons.drag_indicator, size: 20, color: dim),
+      );
+    }
+
+    return Container(
       key: ValueKey(node.id),
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        leading: Icon(
-          nodeIcon(node),
-          color: selected ? Theme.of(context).colorScheme.primary : null,
+      decoration: BoxDecoration(
+        color: selected ? scheme.primary.withOpacity(0.10) : Colors.transparent,
+        border: Border(
+          bottom: BorderSide(color: dim.withOpacity(0.16), width: 0.5),
         ),
-        title: Text(node.title.isEmpty ? '未命名' : node.title),
-        subtitle: node.isFolder ? null : _subtitle(node),
-        trailing: provider.selectionMode
-            ? Icon(
-                selected ? Icons.check_circle : Icons.circle_outlined,
-                color: selected
-                    ? Theme.of(context).colorScheme.primary
-                    : Colors.grey,
-              )
-            : ReorderableDragStartListener(
-                index: provider.nodes.indexOf(node),
-                child: const Icon(Icons.drag_handle),
-              ),
+      ),
+      child: InkWell(
         onTap: () {
           if (provider.selectionMode) {
             provider.toggleSelection(node.id);
@@ -310,6 +345,50 @@ class _HomePageState extends State<HomePage> {
             provider.enterSelection(node);
           }
         },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            children: [
+              Icon(
+                nodeIcon(node),
+                size: 23,
+                color: isFolder ? AppTheme.primary : dim,
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      node.title.isEmpty ? '未命名' : node.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight:
+                            isFolder ? FontWeight.w600 : FontWeight.w400,
+                        color: isDark ? Colors.white : const Color(0xFF37352F),
+                      ),
+                    ),
+                    if (preview != null) ...[
+                      const SizedBox(height: 3),
+                      preview,
+                    ],
+                    if (!isFolder) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        _relativeTime(node.updatedAt),
+                        style: TextStyle(fontSize: 11, color: dim),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              trailing,
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -324,6 +403,18 @@ class _HomePageState extends State<HomePage> {
       overflow: TextOverflow.ellipsis,
       style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
     );
+  }
+
+  /// 相对时间（纯 Dart 计算，避免依赖 intl 本地化初始化）。
+  String _relativeTime(int ms) {
+    if (ms <= 0) return '—';
+    final t = DateTime.fromMillisecondsSinceEpoch(ms);
+    final diff = DateTime.now().difference(t);
+    if (diff.inMinutes < 1) return '刚刚';
+    if (diff.inHours < 1) return '${diff.inMinutes}分钟前';
+    if (diff.inDays < 1) return '${diff.inHours}小时前';
+    if (diff.inDays < 7) return '${diff.inDays}天前';
+    return '${t.month}月${t.day}日';
   }
 
   /// 新建文件夹 / 文章 表单。
@@ -436,10 +527,14 @@ class _EmptyHint extends StatelessWidget {
 }
 
 /// 移动节点到其它层级对话框（展示可选的目标文件夹）。
+///
+/// 文件夹列表由调用方在弹窗前已取好并传入，构建过程全同步，
+/// 不再依赖 initState 异步 setState。
 class _MoveDialog extends StatefulWidget {
-  const _MoveDialog({required this.targets});
+  const _MoveDialog({required this.targets, required this.folders});
 
   final List<NotePadNode> targets;
+  final List<NotePadNode> folders;
 
   @override
   State<_MoveDialog> createState() => _MoveDialogState();
@@ -447,83 +542,59 @@ class _MoveDialog extends StatefulWidget {
 
 class _MoveDialogState extends State<_MoveDialog> {
   int? _selectedIndex;
-  List<NotePadNode> _folders = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final provider = context.read<NoteProvider>();
-      final all = await provider.allFolders();
-      if (!mounted) return;
-      setState(() {
-        _folders = all;
-      });
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
+    final folders = widget.folders;
+    // 注意：SimpleDialog 会把 children 包进自带的 SingleChildScrollView + Column，
+    // 所以绝不能在 children 里再放 Flexible / 定高 SizedBox / ListView，
+    // 否则会因高度不受限抛出 RenderFlex 布局异常导致弹窗卡死。直接铺平即可。
     return SimpleDialog(
-      title: Text('移动到文件夹（${widget.targets.length} 项）'),
+      title: Text('移动 ${widget.targets.length} 项'),
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Text(
-            '移动后会从当前文件夹中移除',
-            style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
-          ),
-        ),
-        Flexible(
-          child: SizedBox(
-            height: 320,
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                for (var i = 0; i < _folders.length; i++)
-                  RadioListTile<int>(
-                    value: i,
-                    groupValue: _selectedIndex,
-                    dense: true,
-                    title: Text(_folders[i].title.isEmpty ? '未命名' : _folders[i].title),
-                    onChanged: (v) => setState(() => _selectedIndex = v),
-                  ),
-                if (_folders.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      '暂无其它文件夹',
-                      style: TextStyle(color: Colors.grey.shade600),
-                    ),
-                  ),
-              ],
+        if (folders.isEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+            child: Text('当前没有可移动的文件夹'),
+          )
+        else
+          for (var i = 0; i < folders.length; i++)
+            RadioListTile<int>(
+              value: i,
+              groupValue: _selectedIndex,
+              dense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+              secondary: const Icon(Icons.folder_outlined),
+              title: Text(
+                folders[i].title.isEmpty ? '未命名' : folders[i].title,
+              ),
+              onChanged: (v) => setState(() => _selectedIndex = v),
             ),
-          ),
+      ],
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
         ),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('取消'),
-              ),
-              const SizedBox(width: 8),
-              FilledButton(
-                onPressed: _selectedIndex == null
-                    ? null
-                    : () async {
-                        await context.read<NoteProvider>().moveSelectedTo(
-                              _folders[_selectedIndex!].id,
-                            );
-                        if (!context.mounted) return;
-                        Navigator.pop(context);
-                      },
-                child: const Text('移动'),
-              ),
-            ],
-          ),
+        FilledButton(
+          onPressed: _selectedIndex == null
+              ? null
+              : () async {
+                  final target = folders[_selectedIndex!];
+                  debugPrint('[MoveDialog] 确认移动 ${widget.targets.length} 项 -> ${target.title}(${target.id})');
+                  final provider = context.read<NoteProvider>();
+                  final moved = provider.selectedNodes;
+                  debugPrint('[MoveDialog] 被移动节点 ids=${moved.map((n) => n.id).toList()}');
+                  try {
+                    await provider.moveSelectedTo(target.id);
+                    debugPrint('[MoveDialog] 移动完成，目标=${target.id}');
+                  } catch (e) {
+                    debugPrint('[MoveDialog] 移动失败: $e');
+                  }
+                  if (!context.mounted) return;
+                  Navigator.pop(context);
+                },
+          child: const Text('移动'),
         ),
       ],
     );
