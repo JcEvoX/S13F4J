@@ -73,16 +73,13 @@ flutter run -d linux
 
 ## 🙏 致谢
 
-本项目为非商业的开源学习项目，**代码为 Flutter 重新实现**，功能设计与交互参照了
-原 Android 开源项目 **椒盐笔记 (Salt Note)**：
-
+本项目为基于原项目功能描述，用 Flutter 重新实现的跨平台学习项目：
 - **原作者：Moriafly**（[GitHub @Moriafly](https://github.com/Moriafly)）
 - 原仓库：[Moriafly/SaltNoteSource](https://github.com/Moriafly/SaltNoteSource)
 - 作者旗下其他项目：椒盐音乐 [Moriafly/SaltPlayerSource](https://github.com/Moriafly/SaltPlayerSource) 等
 
-> 本仓库仅保留对原作者的致敬与功能参考，未包含原 Android 闭源代码。
-> 原项目部分能力需要购买 Pro，本项目为纯学习演示实现，能力与授权均以原项目为准。
+> 原项目部分能力需要购买 Pro，本项目的功能与授权均以原项目为准。
 
 ## 📄 许可
 
-本项目使用 MIT License，详情见 `LICENSE`。
+本项目**禁止任何商业用途**，详情见 `LICENSE`。

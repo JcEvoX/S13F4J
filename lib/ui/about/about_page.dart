@@ -108,10 +108,9 @@ class _AboutPageState extends State<AboutPage> {
           const _SectionTitle('声明'),
           const SizedBox(height: 8),
           Text(
-            '本仓库并非原 Android 源码的移植，而是基于原项目功能描述，用 Flutter '
-            '重新实现的跨平台学习项目。未包含任何原 Android 闭源代码。'
-            '原项目部分能力需要购买 Pro，本项目的功能与授权均以原项目为准，'
-            '本项目按 MIT 协议开源。',
+            '本项目为基于原项目功能描述，用 Flutter 重新实现的跨平台学习项目，'
+            '原项目部分能力需要购买 Pro，本项目的功能与授权均以原项目为准。'
+            '本项目禁止任何商业用途。',
             style: TextStyle(height: 1.6, color: Colors.grey.shade700, fontSize: 13),
           ),
         ],
