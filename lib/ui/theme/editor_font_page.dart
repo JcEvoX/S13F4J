@@ -129,7 +129,7 @@ class _EditorFontPageState extends State<EditorFontPage> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          '椒盐笔记\n这是编辑器字体预览：明月几时有，把酒问青天。\n# 标题 **加粗** 等等 Markdown 元素。',
+          'NotePad\n这是编辑器字体预览：明月几时有，把酒问青天。\n# 标题 **加粗** 等等 Markdown 元素。',
           style: TextStyle(
             fontSize: _size,
             height: 1.6,

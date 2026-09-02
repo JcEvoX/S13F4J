@@ -12,7 +12,7 @@ import '../webdav/webdav_page.dart';
 /// 备份和恢复页。
 ///
 /// 对应原 Android 端的「备份和恢复」：
-/// - 选择椒盐笔记本地文件夹（用于自动备份）；
+/// - 选择本地备份文件夹（用于自动备份）；
 /// - 手动「备份到本地」与「恢复备份」；
 /// - 自动备份到本地 / WebDAV 开关。
 class BackupRestorePage extends StatefulWidget {
@@ -52,7 +52,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 const SizedBox(height: 16),
                 ListTile(
                   leading: const Icon(Icons.folder_open),
-                  title: const Text('椒盐笔记文件夹'),
+                  title: const Text('本地备份文件夹'),
                   subtitle: Text(
                     s.backupFolderName ??
                         s.backupFolder ??
@@ -117,7 +117,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     final color = folderSet ? const Color(0xFF50D18D) : const Color(0xFFE74C3C);
     final text = folderSet
         ? '自动备份已生效，将自动备份数据到本地文件夹'
-        : '还未选择椒盐笔记文件夹，这将影响到自动备份功能';
+        : '还未选择本地备份文件夹，这将影响到自动备份功能';
     return Card(
       elevation: 0,
       color: color.withOpacity(0.1),

@@ -24,18 +24,18 @@ const int kBackupFormatVersion = 1;
 class BackupService {
   BackupService._();
 
-  /// 生成备份文件名：SaltNote-yyyyMMdd-HHmmss.json。
+  /// 生成备份文件名：NotePad-yyyyMMdd-HHmmss.json。
   static String backupFileName([DateTime? t]) {
     final now = t ?? DateTime.now();
     String two(int v) => v.toString().padLeft(2, '0');
-    return 'SaltNote-${now.year}${two(now.month)}${two(now.day)}-'
+    return 'NotePad-${now.year}${two(now.month)}${two(now.day)}-'
         '${two(now.hour)}${two(now.minute)}${two(now.second)}.json';
   }
 
   /// 将节点树序列化为备份 JSON（含应用标识与版本号）。
   static String encodeBackup(List<NotePadNode> nodes) {
     return jsonEncode({
-      'app': 'salt_note',
+      'app': 'notepad',
       'format': kBackupFormatVersion,
       'exported_at': DateTime.now().millisecondsSinceEpoch,
       'nodes': nodes.map((n) => n.toMap()).toList(),
