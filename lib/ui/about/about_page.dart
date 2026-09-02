@@ -110,7 +110,7 @@ class _AboutPageState extends State<AboutPage> {
           Text(
             '本项目为基于原项目功能描述，用 Flutter 重新实现的跨平台学习项目，'
             '原项目部分能力需要购买 Pro，本项目的功能与授权均以原项目为准。'
-            '本项目以 GPL-3.0 协议开源。',
+            '本项目以 AGPL-3.0 协议开源。',
             style: TextStyle(height: 1.6, color: Colors.grey.shade700, fontSize: 13),
           ),
         ],
