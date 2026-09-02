@@ -554,7 +554,7 @@ class _MoveDialogState extends State<_MoveDialog> {
       children: [
         if (folders.isEmpty)
           const Padding(
-            padding: EdgeInsets.fromLTRB(24, 8, 24, 8),
+            padding: EdgeInsets.fromLTRB(24, 16, 24, 8),
             child: Text('当前没有可移动的文件夹'),
           )
         else
@@ -570,31 +570,41 @@ class _MoveDialogState extends State<_MoveDialog> {
               ),
               onChanged: (v) => setState(() => _selectedIndex = v),
             ),
-      ],
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
-        ),
-        FilledButton(
-          onPressed: _selectedIndex == null
-              ? null
-              : () async {
-                  final target = folders[_selectedIndex!];
-                  debugPrint('[MoveDialog] 确认移动 ${widget.targets.length} 项 -> ${target.title}(${target.id})');
-                  final provider = context.read<NoteProvider>();
-                  final moved = provider.selectedNodes;
-                  debugPrint('[MoveDialog] 被移动节点 ids=${moved.map((n) => n.id).toList()}');
-                  try {
-                    await provider.moveSelectedTo(target.id);
-                    debugPrint('[MoveDialog] 移动完成，目标=${target.id}');
-                  } catch (e) {
-                    debugPrint('[MoveDialog] 移动失败: $e');
-                  }
-                  if (!context.mounted) return;
-                  Navigator.pop(context);
-                },
-          child: const Text('移动'),
+        // 注意：SimpleDialog 只有 title / children，没有 actions 参数
+        // （actions 是 AlertDialog 的），按钮需放在 children 末尾，
+        // children 已由 SimpleDialog 自带的滚动承载，勿再嵌套 Flexible/ListView。
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 8),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(
+                onPressed: _selectedIndex == null
+                    ? null
+                    : () async {
+                        final target = folders[_selectedIndex!];
+                        debugPrint('[MoveDialog] 确认移动 ${widget.targets.length} 项 -> ${target.title}(${target.id})');
+                        final provider = context.read<NoteProvider>();
+                        final moved = provider.selectedNodes;
+                        debugPrint('[MoveDialog] 被移动节点 ids=${moved.map((n) => n.id).toList()}');
+                        try {
+                          await provider.moveSelectedTo(target.id);
+                          debugPrint('[MoveDialog] 移动完成，目标=${target.id}');
+                        } catch (e) {
+                          debugPrint('[MoveDialog] 移动失败: $e');
+                        }
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                      },
+                child: const Text('移动'),
+              ),
+            ],
+          ),
         ),
       ],
     );
