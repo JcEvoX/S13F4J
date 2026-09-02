@@ -1,6 +1,7 @@
 # Miscellaneous
 *.class
 # 本地持久化的 git 凭据（不入库）
+.git-credentials
 .git-credentials.local
 *.log
 *.pyc
