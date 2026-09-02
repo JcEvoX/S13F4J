@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../models/note.dart';
 import '../../state/note_provider.dart';
-import '../../theme/app_theme.dart';
 import '../../widgets/article_card.dart';
 import '../../widgets/node_icon.dart';
 import '../../widgets/wallpaper_background.dart';
@@ -357,7 +356,7 @@ class _HomePageState extends State<HomePage> {
     final onReorder = provider.reorder;
     return ReorderableListView(
       padding: const EdgeInsets.only(bottom: 96),
-      onReorder: onReorder,
+      onReorderItem: onReorder,
       buildDefaultDragHandles: false,
       children: [
         for (final node in provider.nodes)
@@ -437,7 +436,7 @@ class _HomePageState extends State<HomePage> {
         ? Colors.white54
         : Colors.grey.shade600;
     return IconButton(
-      icon: Icon(Icons.more_vert, size: 20, color: dim.withOpacity(0.75)),
+      icon: Icon(Icons.more_vert, size: 20, color: dim.withValues(alpha: 0.75)),
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
       visualDensity: VisualDensity.compact,
@@ -827,18 +826,25 @@ class _MoveDialogState extends State<_MoveDialog> {
             child: Text('当前没有可移动的文件夹'),
           )
         else
-          for (var i = 0; i < folders.length; i++)
-            RadioListTile<int>(
-              value: i,
-              groupValue: _selectedIndex,
-              dense: true,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-              secondary: const NodeIcon(isFolder: true, size: 22),
-              title: Text(
-                folders[i].title.isEmpty ? '未命名' : folders[i].title,
-              ),
-              onChanged: (v) => setState(() => _selectedIndex = v),
+          RadioGroup<int>(
+            groupValue: _selectedIndex,
+            onChanged: (v) => setState(() => _selectedIndex = v),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (var i = 0; i < folders.length; i++)
+                  RadioListTile<int>(
+                    value: i,
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                    secondary: const NodeIcon(isFolder: true, size: 22),
+                    title: Text(
+                      folders[i].title.isEmpty ? '未命名' : folders[i].title,
+                    ),
+                  ),
+              ],
             ),
+          ),
         // 注意：SimpleDialog 只有 title / children，没有 actions 参数
         // （actions 是 AlertDialog 的），按钮需放在 children 末尾，
         // children 已由 SimpleDialog 自带的滚动承载，勿再嵌套 Flexible/ListView。
@@ -917,8 +923,8 @@ class _SpeedDialState extends State<_SpeedDial> {
 
   @override
   Widget build(BuildContext context) {
-    final color = _SpeedDial._fabColor;
-    final onColor = Colors.white;
+    const color = _SpeedDial._fabColor;
+    const onColor = Colors.white;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,

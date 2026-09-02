@@ -70,7 +70,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
         ? Colors.white54
         : Colors.grey.shade600;
     return IconButton(
-      icon: Icon(Icons.more_vert, size: 20, color: dim.withOpacity(0.75)),
+      icon: Icon(Icons.more_vert, size: 20, color: dim.withValues(alpha: 0.75)),
       padding: EdgeInsets.zero,
       constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
       visualDensity: VisualDensity.compact,

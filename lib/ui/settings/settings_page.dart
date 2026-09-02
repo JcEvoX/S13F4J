@@ -228,10 +228,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       color: titleColor,
                     ),
                   ),
-                  if (subtitle != null && subtitle!.isNotEmpty) ...[
+                  if (subtitle != null && subtitle.isNotEmpty) ...[
                     const SizedBox(height: 2),
                     Text(
-                      subtitle!,
+                      subtitle,
                       style: TextStyle(fontSize: 11, color: dim),
                     ),
                   ],

@@ -36,7 +36,7 @@ class MarkdownToolbar extends StatelessWidget {
       decoration: BoxDecoration(
         color: isDark
             ? Theme.of(context).colorScheme.surfaceContainerHighest
-                .withOpacity(0.3)
+                .withValues(alpha: 0.3)
             : const Color(0x80FFFFFF),
         border: Border(
           top: BorderSide(

@@ -103,21 +103,31 @@ class _EditorFontPageState extends State<EditorFontPage> {
                 const Text('字体族',
                     style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 8),
-                for (final (key, name, desc) in _families)
-                  RadioListTile<String>(
-                    value: key,
-                    groupValue: _family,
-                    dense: true,
-                    title: Text(name, style: TextStyle(fontFamily: key == 'system' ? null : key)),
-                    subtitle: Text(desc,
-                        style: TextStyle(
-                            fontSize: 12, color: Colors.grey.shade600)),
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _family = v);
-                      _saveFamily(v);
-                    },
+                RadioGroup<String>(
+                  groupValue: _family,
+                  onChanged: (v) {
+                    if (v == null) return;
+                    setState(() => _family = v);
+                    _saveFamily(v);
+                  },
+                  child: Column(
+                    children: [
+                      for (final (key, name, desc) in _families)
+                        RadioListTile<String>(
+                          value: key,
+                          dense: true,
+                          title: Text(name,
+                              style: TextStyle(
+                                  fontFamily:
+                                      key == 'system' ? null : key)),
+                          subtitle: Text(desc,
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey.shade600)),
+                        ),
+                    ],
                   ),
+                ),
               ],
             ),
     );

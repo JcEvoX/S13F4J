@@ -122,7 +122,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
         : '还未选择本地备份文件夹，这将影响到自动备份功能';
     return Card(
       elevation: 0,
-      color: color.withOpacity(0.1),
+      color: color.withValues(alpha: 0.1),
       child: ListTile(
         leading: Icon(
           folderSet ? Icons.check_circle : Icons.warning_amber,

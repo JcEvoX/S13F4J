@@ -120,7 +120,7 @@ class ArticleCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 11,
-                          color: titleColor.withOpacity(0.5),
+                          color: titleColor.withValues(alpha: 0.5),
                         ),
                       ),
                     ] else ...[
@@ -145,7 +145,7 @@ class ArticleCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
-                            color: titleColor.withOpacity(0.5),
+                            color: titleColor.withValues(alpha: 0.5),
                           ),
                         ),
                       ],
@@ -159,7 +159,7 @@ class ArticleCard extends StatelessWidget {
                   child: DecoratedBox(
                     decoration: BoxDecoration(
                       color: selected
-                          ? scheme.primary.withOpacity(0.10)
+                          ? scheme.primary.withValues(alpha: 0.10)
                           : Colors.transparent,
                       borderRadius: BorderRadius.circular(12),
                     ),

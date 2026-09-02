@@ -81,7 +81,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
     final scheme = Theme.of(context).colorScheme;
     return Card(
       elevation: 0,
-      color: scheme.primaryContainer.withOpacity(0.35),
+      color: scheme.primaryContainer.withValues(alpha: 0.35),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
         child: Row(
@@ -140,7 +140,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
     return Container(
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: dim.withOpacity(0.16), width: 0.5),
+          bottom: BorderSide(color: dim.withValues(alpha: 0.16), width: 0.5),
         ),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),

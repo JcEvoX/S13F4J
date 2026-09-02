@@ -219,9 +219,11 @@ class NoteProvider extends ChangeNotifier {
   // ---- 排序 / 移动 ----
 
   /// 拖拽重排：更新子节点的 sort_order 并批量落库。
+  ///
+  /// 注意：新版 [ReorderableListView.onReorderItem] 的 `newIndex` 已自动
+  /// 按「移除 oldIndex 项」调整过，这里直接 removeAt + insert 即可。
   Future<void> reorder(int oldIndex, int newIndex) async {
     debugPrint('[NoteProvider] reorder: $oldIndex -> $newIndex');
-    if (newIndex > oldIndex) newIndex -= 1;
     final updated = List<NotePadNode>.from(_nodes);
     final moved = updated.removeAt(oldIndex);
     updated.insert(newIndex, moved);
