@@ -51,6 +51,15 @@ jobs:
         if: matrix.platform == 'linux'
         run: flutter config --enable-linux-desktop
 
+      # Flutter 3.47 默认 ndkVersion = 28.2.13676358，GitHub runner 预装版本
+      # 可能不匹配。AGP 在缺版本时走 sdkmanager 自动下载，偶发 zip 损坏导致
+      # 构建失败，这里显式安装，保证与本地/发布一致。
+      - name: Install Android NDK
+        if: matrix.platform == 'android'
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          yes | sdkmanager --install "ndk;28.2.13676358"
+
       - name: Install dependencies
         run: flutter pub get
 
