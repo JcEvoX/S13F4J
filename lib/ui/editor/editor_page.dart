@@ -145,6 +145,8 @@ class _EditorPageState extends State<EditorPage> {
 
     return Scaffold(
       appBar: AppBar(
+        // 原版编辑器标题居中显示。
+        centerTitle: true,
         title: Text(node.title.isEmpty ? '未命名' : node.title),
         actions: [
           if (settings.showWordCount)

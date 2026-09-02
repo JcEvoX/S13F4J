@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../models/note.dart';
 import '../../state/note_provider.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/article_card.dart';
 import '../../widgets/node_icon.dart';
 import '../../widgets/wallpaper_background.dart';
 import '../editor/editor_page.dart';
@@ -367,110 +368,145 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildTile(BuildContext context, NoteProvider provider, NotePadNode node) {
     final selected = provider.selectedIds.contains(node.id);
-    final scheme = Theme.of(context).colorScheme;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final dim = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white54
+        : Colors.grey.shade600;
     final isFolder = node.isFolder;
-    final dim = isDark ? Colors.white54 : Colors.grey.shade600;
-    final preview = _subtitle(node);
 
     final Widget trailing;
     if (provider.selectionMode) {
       trailing = Icon(
         selected ? Icons.check_circle : Icons.radio_button_unchecked,
-        color: selected ? scheme.primary : dim,
+        color: selected ? Theme.of(context).colorScheme.primary : dim,
         size: 22,
       );
     } else if (isFolder) {
-      trailing = Icon(Icons.chevron_right, size: 20, color: dim);
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _moreButton(node),
+          Icon(Icons.chevron_right, size: 20, color: dim),
+        ],
+      );
     } else {
-      trailing = ReorderableDragStartListener(
-        index: provider.nodes.indexOf(node),
-        child: Icon(Icons.drag_indicator, size: 20, color: dim),
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _moreButton(node),
+          ReorderableDragStartListener(
+            index: provider.nodes.indexOf(node),
+            child: Icon(Icons.drag_indicator, size: 20, color: dim),
+          ),
+        ],
       );
     }
 
-    return Container(
+    return ArticleCard(
       key: _tileKey(node.id),
-      decoration: BoxDecoration(
-        color: selected ? scheme.primary.withOpacity(0.10) : Colors.transparent,
-        border: Border(
-          bottom: BorderSide(color: dim.withOpacity(0.16), width: 0.5),
-        ),
-      ),
-      child: InkWell(
-        onTap: () {
-          if (provider.selectionMode) {
-            provider.toggleSelection(node.id);
-            return;
-          }
-          if (node.isFolder) {
-            context.read<NoteProvider>().openFolder(node);
-          } else {
-            Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
-            );
-          }
-        },
-        onLongPress: () {
-          if (!provider.selectionMode) {
-            provider.enterSelection(node);
-          }
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            children: [
-              NodeIcon(isFolder: isFolder, size: 23),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      node.title.isEmpty ? '未命名' : node.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight:
-                            isFolder ? FontWeight.w600 : FontWeight.w400,
-                        color: isDark ? Colors.white : const Color(0xFF37352F),
-                      ),
-                    ),
-                    if (preview != null) ...[
-                      const SizedBox(height: 3),
-                      preview,
-                    ],
-                    if (!isFolder) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _relativeTime(node.updatedAt),
-                        style: TextStyle(fontSize: 11, color: dim),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              trailing,
-            ],
-          ),
-        ),
-      ),
+      node: node,
+      selected: selected,
+      contentEndPadding: provider.selectionMode ? 40 : 80,
+      subtitle: _cardSubtitle(node),
+      time: isFolder ? null : _relativeTime(node.updatedAt),
+      trailing: trailing,
+      onTap: () {
+        if (provider.selectionMode) {
+          provider.toggleSelection(node.id);
+          return;
+        }
+        if (node.isFolder) {
+          context.read<NoteProvider>().openFolder(node);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
+          );
+        }
+      },
+      onLongPress: () {
+        if (!provider.selectionMode) {
+          provider.enterSelection(node);
+        }
+      },
     );
   }
 
-  Widget? _subtitle(NotePadNode node) {
-    if (node.content.trim().isEmpty) return null;
-    final firstLine = node.content.trim().split('\n').first;
-    if (firstLine == node.title) return null;
-    return Text(
-      firstLine,
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+  /// more_vert：打开原版风格的单条目操作菜单（重命名 / 移动 / 移入回收站）。
+  Widget _moreButton(NotePadNode node) {
+    final dim = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white54
+        : Colors.grey.shade600;
+    return IconButton(
+      icon: Icon(Icons.more_vert, size: 20, color: dim.withOpacity(0.75)),
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+      visualDensity: VisualDensity.compact,
+      onPressed: () => _showItemMenu(node),
     );
+  }
+
+  Future<void> _showItemMenu(NotePadNode node) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('重命名'),
+              onTap: () => Navigator.pop(ctx, 'rename'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.drive_file_move_outlined),
+              title: const Text('移动'),
+              onTap: () => Navigator.pop(ctx, 'move'),
+            ),
+            ListTile(
+              leading: Icon(Icons.delete_outline,
+                  color: Theme.of(ctx).colorScheme.error),
+              title: Text('移入回收站',
+                  style: TextStyle(color: Theme.of(ctx).colorScheme.error)),
+              onTap: () => Navigator.pop(ctx, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'rename':
+        await _rename(node);
+        break;
+      case 'move':
+        await _showMoveDialog([node]);
+        break;
+      case 'delete':
+        await _confirmDelete([node]);
+        break;
+    }
+  }
+
+  /// 重命名：底部弹出输入框（贴近原版 DialogX 风格）。
+  Future<void> _rename(NotePadNode node) async {
+    final controller = TextEditingController(text: node.title);
+    final title = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _RenameSheet(controller: controller, isFolder: node.isFolder),
+    );
+    controller.dispose();
+    if (!mounted || title == null || title.trim().isEmpty) return;
+    final provider = context.read<NoteProvider>();
+    await provider.updateNode(node.copyWith(title: title.trim()));
+    await provider.refresh();
+  }
+
+  /// 卡片副文本：文章为内容预览，文件夹显示为空。
+  String? _cardSubtitle(NotePadNode node) {
+    if (node.isFolder) return '';
+    return node.content.trim().split('\n').first;
   }
 
   /// 相对时间（纯 Dart 计算，避免依赖 intl 本地化初始化）。
@@ -594,6 +630,104 @@ class _FolderCreateSheetState extends State<_FolderCreateSheet> {
         ),
       ),
     );
+  }
+}
+
+/// 重命名底部面板（贴近原版 DialogX BottomDialog 风格）。
+class _RenameSheet extends StatefulWidget {
+  const _RenameSheet({required this.controller, required this.isFolder});
+
+  final TextEditingController controller;
+  final bool isFolder;
+
+  @override
+  State<_RenameSheet> createState() => _RenameSheetState();
+}
+
+class _RenameSheetState extends State<_RenameSheet> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2E2E2E) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black26,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  NodeIcon(isFolder: widget.isFolder, size: 24),
+                  const SizedBox(width: 10),
+                  Text(
+                    widget.isFolder ? '重命名文件夹' : '重命名文章',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colors.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: widget.controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _submit(),
+                decoration: const InputDecoration(
+                  hintText: '请输入新名称',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _submit,
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _submit() {
+    final title = widget.controller.text.trim();
+    if (title.isEmpty) return;
+    Navigator.pop(context, title);
   }
 }
 

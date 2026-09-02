@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 
 import '../../data/note_dao.dart';
 import '../../models/note.dart';
+import '../../widgets/article_card.dart';
 import '../editor/editor_page.dart';
 
 /// 最近编辑的文章页。
@@ -47,41 +47,37 @@ class _RecentPageState extends State<RecentPage> {
               ? const Center(child: Text('暂无最近编辑的文章'))
               : RefreshIndicator(
                   onRefresh: _load,
-                  child: ListView.separated(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: _items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 1),
-                    itemBuilder: (ctx, i) => _buildTile(ctx, _items[i]),
+                    itemBuilder: (ctx, i) => _buildCard(ctx, _items[i]),
                   ),
                 ),
     );
   }
 
-  Widget _buildTile(BuildContext context, NotePadNode node) {
-    final time = DateFormat('MM-dd HH:mm')
-        .format(DateTime.fromMillisecondsSinceEpoch(node.updatedAt));
-    final preview = node.content.trim().split('\n').first;
-    return ListTile(
-      leading: const Icon(Icons.description_outlined),
-      title: Text(
-        node.title.isEmpty ? '未命名文章' : node.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: preview.isEmpty
-          ? Text('更新于 $time',
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600))
-          : Text(
-              preview,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-            ),
-      trailing: Text(time,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+  Widget _buildCard(BuildContext context, NotePadNode node) {
+    return ArticleCard(
+      node: node,
+      time: _timeText(node.updatedAt),
+      trailing: const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
       onTap: () => Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
       ),
     );
+  }
+
+  String _timeText(int ms) {
+    final dt = DateTime.fromMillisecondsSinceEpoch(ms);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(dt.year, dt.month, dt.day);
+    final hh = dt.hour.toString().padLeft(2, '0');
+    final mm = dt.minute.toString().padLeft(2, '0');
+    if (day == today) return '今天 $hh:$mm';
+    if (day == today.subtract(const Duration(days: 1))) return '昨天 $hh:$mm';
+    if (dt.year == now.year) return '${dt.month}月${dt.day}日 $hh:$mm';
+    return '${dt.year}年${dt.month}月${dt.day}日';
   }
 }

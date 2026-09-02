@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../services/settings_service.dart';
 import '../editor/export/export_service.dart';
 import 'latex_syntax.dart';
+import 'markdown_preview_settings_page.dart';
 import 'mermaid_renderer.dart';
 
 /// Markdown 预览页。
@@ -28,6 +29,9 @@ class _PreviewPageState extends State<PreviewPage> {
   bool _mathJax = false;
   bool _mermaid = false;
 
+  /// 预览 / 源码切换（原版顶部「预览」图标）。
+  bool _showSource = false;
+
   @override
   void initState() {
     super.initState();
@@ -46,17 +50,40 @@ class _PreviewPageState extends State<PreviewPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // 原版顶部图标行：预览设置 / 导出 / 预览(源码切换) / 关闭。
       appBar: AppBar(
         title: Text(widget.title.isEmpty ? '预览' : widget.title),
         actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: IconButton(
-              icon: const Icon(Icons.more_vert),
-              tooltip: '导出',
-              onPressed: () => _showExportSheet(),
-            ),
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: '预览设置',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MarkdownPreviewSettingsPage(),
+                ),
+              );
+            },
           ),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: '导出',
+            onPressed: _showExportSheet,
+          ),
+          IconButton(
+            icon: Icon(
+              _showSource ? Icons.visibility_outlined : Icons.code_outlined,
+            ),
+            tooltip: '预览',
+            onPressed: () => setState(() => _showSource = !_showSource),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '关闭',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
@@ -66,23 +93,42 @@ class _PreviewPageState extends State<PreviewPage> {
           Expanded(
             child: RepaintBoundary(
               key: _renderKey,
-              child: MarkdownBody(
-                data: widget.content,
-                selectable: true,
-                builders: {
-                  'img': _ImageBuilder(),
-                  if (_mathJax) 'math': LatexElementBuilder(),
-                  if (_mathJax) 'math-block': LatexElementBuilder(display: true),
-                  if (_mermaid) 'mermaid': MermaidTagBuilder(),
-                },
-                blockSyntaxes: _mermaid ? const [MermaidBlockSyntax()] : null,
-                inlineSyntaxes: _mathJax
-                    ? [LatexDisplayInlineSyntax(), LatexInlineSyntax()]
-                    : null,
-              ),
+              child: _showSource
+                  ? _buildSource()
+                  : MarkdownBody(
+                      data: widget.content,
+                      selectable: true,
+                      builders: {
+                        'img': _ImageBuilder(),
+                        if (_mathJax) 'math': LatexElementBuilder(),
+                        if (_mathJax) 'math-block': LatexElementBuilder(display: true),
+                        if (_mermaid) 'mermaid': MermaidTagBuilder(),
+                      },
+                      blockSyntaxes: _mermaid ? const [MermaidBlockSyntax()] : null,
+                      inlineSyntaxes: _mathJax
+                          ? [LatexDisplayInlineSyntax(), LatexInlineSyntax()]
+                          : null,
+                    ),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// 源码视图：等宽字体展示原始 Markdown 文本。
+  Widget _buildSource() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        widget.content,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 14,
+          height: 1.6,
+          color: isDark ? Colors.white : const Color(0xFF191B23),
+        ),
       ),
     );
   }
