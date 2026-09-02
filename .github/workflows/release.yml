@@ -90,12 +90,25 @@ jobs:
           echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
-      - name: Build release APKs (split by ABI)
-        # --split-per-abi：分别产出按 ABI 拆分的独立 APK，相比通用 fat APK
-        # 体积可缩减约 60%~70%，用户按设备架构下载安装。
-        # --target-platform 限定只构建 arm / arm64（android-arm -> armeabi-v7a，
-        # android-arm64 -> arm64-v8a），因此不会产出 x86_64 APK。
-        run: flutter build apk --release --split-per-abi --target-platform android-arm,android-arm64 --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
+      # 分 ABI 单独构建（不用 --split-per-abi）：Flutter 的 split-per-abi 会给每个
+      # 架构自动追加不同的 versionCode（base*1000+abiIndex，如 1001/2001），
+      # 导致 v7a / v8a 版本号不一致。逐架构构建则两者 versionCode/versionName 完全相同。
+      - name: Build release APK (armeabi-v7a)
+        run: |
+          flutter build apk --release --target-platform android-arm \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/NotePad-${{ steps.version.outputs.version_name }}-armeabi-v7a.apk"
+
+      - name: Build release APK (arm64-v8a)
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/NotePad-${{ steps.version.outputs.version_name }}-arm64-v8a.apk"
 
       - name: Build release AAB
         run: flutter build appbundle --release --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
@@ -104,9 +117,6 @@ jobs:
         env:
           VER: ${{ steps.version.outputs.version_name }}
         run: |
-          mkdir -p dist
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "dist/NotePad-${VER}-arm64-v8a.apk"
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "dist/NotePad-${VER}-armeabi-v7a.apk"
           cp build/app/outputs/bundle/release/app-release.aab "dist/NotePad-${VER}.aab"
           ls -lh dist/
 

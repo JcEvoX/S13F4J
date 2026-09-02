@@ -35,7 +35,14 @@ class _WallpaperBackgroundState extends State<WallpaperBackground> {
   @override
   Widget build(BuildContext context) {
     final w = _wallpaper;
-    if (w == null) return widget.child;
+    if (w == null) {
+      // 未设置壁纸（跟随系统）：直接绘制主题背景色，
+      // 避免透出 Android 原生窗口背景（深色模式下为黑）导致与其它页面不一致。
+      return ColoredBox(
+        color: Theme.of(context).scaffoldBackgroundColor,
+        child: widget.child,
+      );
+    }
     if (w.isColor) {
       return Container(color: w.color, child: widget.child);
     }
