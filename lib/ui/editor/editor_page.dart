@@ -30,6 +30,7 @@ class _EditorPageState extends State<EditorPage> {
   bool _dirty = false;
   int _wordCount = 0;
   SettingsService? _settings;
+  NoteProvider? _provider;
 
   @override
   void initState() {
@@ -40,6 +41,9 @@ class _EditorPageState extends State<EditorPage> {
   Future<void> _load() async {
     debugPrint('[Editor] 打开 nodeId=${widget.nodeId}');
     final provider = context.read<NoteProvider>();
+    _provider = provider;
+    // 记录当前正在编辑的文章，供首页「定位正在编辑的文章」使用。
+    provider.setCurrentEditingNodeId(widget.nodeId);
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
     if (!mounted) return;
@@ -114,6 +118,8 @@ class _EditorPageState extends State<EditorPage> {
 
   @override
   void dispose() {
+    // 离开编辑器后清除「当前编辑文章」，避免首页定位到已关闭的文章。
+    _provider?.setCurrentEditingNodeId(null);
     _controller.dispose();
     _focus.dispose();
     super.dispose();

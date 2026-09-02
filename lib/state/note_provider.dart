@@ -36,6 +36,18 @@ class NoteProvider extends ChangeNotifier {
   List<NotePadNode> _searchResults = [];
   List<NotePadNode> get searchResults => _searchResults;
 
+  /// 当前正在编辑的文章 id（编辑器打开时写入，供首页「定位」使用）。
+  String? _currentEditingNodeId;
+  String? get currentEditingNodeId => _currentEditingNodeId;
+
+  /// 记录当前正在编辑的文章（编辑器页打开/关闭时调用）。
+  void setCurrentEditingNodeId(String? id) {
+    if (_currentEditingNodeId == id) return;
+    _currentEditingNodeId = id;
+    debugPrint('[NoteProvider] 当前编辑文章: $id');
+    notifyListeners();
+  }
+
   bool _loading = false;
   bool get loading => _loading;
 
@@ -246,4 +258,31 @@ class NoteProvider extends ChangeNotifier {
   }
 
   Future<NotePadNode?> nodeById(String id) => _dao.nodeById(id);
+
+  /// 定位到指定节点：沿父链向上逐层进入，直到其所在层级成为当前列表。
+  ///
+  /// 返回节点在当前列表中的下标；节点不存在、已回收或不在任何可见层级时返回 null。
+  Future<int?> navigateToNode(String nodeId) async {
+    debugPrint('[NoteProvider] navigateToNode: $nodeId');
+    final node = await _dao.nodeById(nodeId);
+    if (node == null || node.isRecycled) {
+      debugPrint('[NoteProvider] navigateToNode 失败：节点不存在或已回收');
+      return null;
+    }
+    // 从节点所在层向上收集祖先文件夹 id（由内到外）。
+    final ancestors = <String?>[];
+    String? parent = node.parentId;
+    while (parent != null) {
+      ancestors.add(parent);
+      final p = await _dao.nodeById(parent);
+      parent = p?.parentId;
+    }
+    // 由外到内逐层进入，使当前列表最终为节点所在层。
+    for (final folderId in ancestors.reversed) {
+      await loadFolder(folderId);
+    }
+    final index = _nodes.indexWhere((n) => n.id == nodeId);
+    debugPrint('[NoteProvider] navigateToNode 完成，index=$index');
+    return index >= 0 ? index : null;
+  }
 }

@@ -29,12 +29,73 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  /// 每个列表项的 GlobalKey，用于「定位正在编辑的文章」滚动定位。
+  final Map<String, GlobalKey> _tileKeys = {};
+
+  GlobalKey _tileKey(String id) => _tileKeys.putIfAbsent(id, () => GlobalKey());
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NoteProvider>().loadFolder(null);
     });
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// 新建文章：无需输入标题，直接创建空文章并进入编辑器。
+  Future<void> _createNoteDirectly() async {
+    final provider = context.read<NoteProvider>();
+    final node = await provider.createNode(isFolder: false, title: '');
+    if (!mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
+    );
+  }
+
+  /// 新建文件夹：弹出输入名称的对话框（贴近原版）。
+  Future<void> _showFolderCreateDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => const _FolderCreateDialog(),
+    );
+  }
+
+  /// 定位当前正在编辑的文章：逐层进入所在文件夹并滚动到该文章。
+  Future<void> _locateEditingNote() async {
+    final provider = context.read<NoteProvider>();
+    final id = provider.currentEditingNodeId;
+    if (id == null) {
+      _showSnack('当前没有正在编辑的文章');
+      return;
+    }
+    final index = await provider.navigateToNode(id);
+    if (!mounted) return;
+    if (index == null) {
+      _showSnack('未找到正在编辑的文章（可能已删除或移入回收站）');
+      return;
+    }
+    // 等待列表按新层级渲染完成后，再滚动到目标项。
+    await Future<void>.delayed(Duration.zero);
+    await WidgetsBinding.instance.endOfFrame;
+    final ctx = _tileKeys[id]?.currentContext;
+    if (ctx == null) {
+      _showSnack('正在编辑的文章不在当前列表中');
+      return;
+    }
+    await Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOutCubic,
+      alignment: 0.25,
+    );
   }
 
   Future<void> _confirmDelete(List<NotePadNode> targets) async {
@@ -118,9 +179,9 @@ class _HomePageState extends State<HomePage> {
         floatingActionButton: provider.selectionMode
             ? null
             : _SpeedDial(
-                color: colors.primary,
-                onAddNote: () => _showCreateSheet(provider, isFolder: false),
-                onAddFolder: () => _showCreateSheet(provider, isFolder: true),
+                onAddNote: _createNoteDirectly,
+                onAddFolder: _showFolderCreateDialog,
+                onLocate: _locateEditingNote,
               ),
       ),
     );
@@ -145,15 +206,24 @@ class _HomePageState extends State<HomePage> {
                 onPressed: () => context.read<NoteProvider>().navigateUp(),
               ),
             Expanded(
-              child: Text(
-                provider.currentParentId == null ? 'NotePad' : '文件夹',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: colors.onSurface,
-                ),
+              child: Row(
+                children: [
+                  // 顶栏文件夹图标（贴近原版 TitleBar）。
+                  const NodeIcon(isFolder: true, size: 22),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      provider.currentParentId == null ? 'NotePad' : '文件夹',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurface,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             IconButton(
@@ -186,10 +256,10 @@ class _HomePageState extends State<HomePage> {
   void _handleMenu(String value, NoteProvider provider) {
     switch (value) {
       case 'new_folder':
-        _showCreateSheet(provider, isFolder: true);
+        _showFolderCreateDialog();
         break;
       case 'new_note':
-        _showCreateSheet(provider, isFolder: false);
+        _createNoteDirectly();
         break;
       case 'recycle':
         Navigator.push(
@@ -279,7 +349,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
     if (provider.nodes.isEmpty) {
-      return _EmptyHint(onCreate: () => _showCreateSheet(provider));
+      return _EmptyHint(onCreate: _createNoteDirectly);
     }
     final onReorder = provider.reorder;
     return ReorderableListView(
@@ -318,7 +388,7 @@ class _HomePageState extends State<HomePage> {
     }
 
     return Container(
-      key: ValueKey(node.id),
+      key: _tileKey(node.id),
       decoration: BoxDecoration(
         color: selected ? scheme.primary.withOpacity(0.10) : Colors.transparent,
         border: Border(
@@ -349,11 +419,7 @@ class _HomePageState extends State<HomePage> {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             children: [
-              Icon(
-                nodeIcon(node),
-                size: 23,
-                color: isFolder ? AppTheme.primary : dim,
-              ),
+              NodeIcon(isFolder: isFolder, size: 23),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -416,48 +482,64 @@ class _HomePageState extends State<HomePage> {
     if (diff.inDays < 7) return '${diff.inDays}天前';
     return '${t.month}月${t.day}日';
   }
+}
 
-  /// 新建文件夹 / 文章 表单。
-  void _showCreateSheet(NoteProvider provider, {bool isFolder = false}) {
-    final controller = TextEditingController();
-    final isNote = !isFolder;
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isNote ? '新建文章' : '新建文件夹'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: isNote ? '输入标题 / 正文（可为空开始写）' : '输入文件夹名称',
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final title = controller.text.trim();
-              Navigator.pop(ctx);
-              if (title.isEmpty) return;
-              final node =
-                  await context.read<NoteProvider>().createNode(isFolder: isFolder, title: title);
-              if (!ctx.mounted) return;
-              if (isNote) {
-                Navigator.push(
-                  ctx,
-                  MaterialPageRoute(
-                    builder: (_) => EditorPage(nodeId: node.id),
-                  ),
-                );
-              }
-            },
-            child: const Text('创建'),
+/// 新建文件夹对话框（贴近原版：展示文件夹图标，输入名称后创建）。
+class _FolderCreateDialog extends StatefulWidget {
+  const _FolderCreateDialog();
+
+  @override
+  State<_FolderCreateDialog> createState() => _FolderCreateDialogState();
+}
+
+class _FolderCreateDialogState extends State<_FolderCreateDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    final title = _controller.text.trim();
+    if (title.isEmpty) return;
+    final provider = context.read<NoteProvider>();
+    await provider.createNode(isFolder: true, title: title);
+    if (!mounted) return;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('新建文件夹'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const NodeIcon(isFolder: true, size: 56),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _create(),
+            decoration: const InputDecoration(
+              hintText: '输入文件夹名称',
+            ),
           ),
         ],
       ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _create,
+          child: const Text('创建'),
+        ),
+      ],
     );
   }
 }
@@ -509,7 +591,7 @@ class _EmptyHint extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.folder_open, size: 72, color: Colors.grey.shade400),
+          const NodeIcon(isFolder: true, size: 72),
           const SizedBox(height: 12),
           Text('空空如也', style: TextStyle(color: Colors.grey.shade600)),
           const SizedBox(height: 4),
@@ -564,7 +646,7 @@ class _MoveDialogState extends State<_MoveDialog> {
               groupValue: _selectedIndex,
               dense: true,
               contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-              secondary: const Icon(Icons.folder_outlined),
+              secondary: const NodeIcon(isFolder: true, size: 22),
               title: Text(
                 folders[i].title.isEmpty ? '未命名' : folders[i].title,
               ),
@@ -613,18 +695,22 @@ class _MoveDialogState extends State<_MoveDialog> {
 
 /// 右下角可展开的 Speed Dial（贴近原版 speed-dial 交互）。
 ///
-/// 主按钮点击后在下方展开「新建文章」「新建文件夹」两个子项，
-/// 点击空白或主按钮收起。
+/// 主按钮点击后在下方展开「新建文章」「新建文件夹」「定位正在编辑的文章」
+/// 三个子项，点击空白或主按钮收起。主按钮 / 子项按钮统一使用原版
+/// 深黑色（#ff191919）。
 class _SpeedDial extends StatefulWidget {
   const _SpeedDial({
-    required this.color,
     required this.onAddNote,
     required this.onAddFolder,
+    required this.onLocate,
   });
 
-  final Color color;
   final VoidCallback onAddNote;
   final VoidCallback onAddFolder;
+  final VoidCallback onLocate;
+
+  /// 原版 SpeedDial 主按钮背景色。
+  static const Color _fabColor = Color(0xff191919);
 
   @override
   State<_SpeedDial> createState() => _SpeedDialState();
@@ -644,10 +730,8 @@ class _SpeedDialState extends State<_SpeedDial> {
 
   @override
   Widget build(BuildContext context) {
-    final color = widget.color;
-    final onColor = color.computeLuminance() > 0.5
-        ? Colors.black
-        : Colors.white;
+    final color = _SpeedDial._fabColor;
+    final onColor = Colors.white;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -667,6 +751,14 @@ class _SpeedDialState extends State<_SpeedDial> {
             color: color,
             onColor: onColor,
             onTap: () => _run(widget.onAddFolder),
+          ),
+          const SizedBox(height: 12),
+          _dialItem(
+            icon: Icons.edit_location_outlined,
+            label: '定位正在编辑的文章',
+            color: color,
+            onColor: onColor,
+            onTap: () => _run(widget.onLocate),
           ),
           const SizedBox(height: 12),
         ],
@@ -707,6 +799,8 @@ class _SpeedDialState extends State<_SpeedDial> {
   Widget _mainButton({required Color color, required Color onColor}) {
     return FloatingActionButton(
       heroTag: 'dial_main',
+      backgroundColor: color,
+      foregroundColor: onColor,
       onPressed: _toggle,
       child: Icon(_open ? Icons.close : Icons.add),
     );
