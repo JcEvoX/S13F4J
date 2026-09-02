@@ -1,12 +1,39 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// 关于页：版本信息与对原作者 Moriafly 的致谢。
-class AboutPage extends StatelessWidget {
+class AboutPage extends StatefulWidget {
   const AboutPage({super.key});
+
+  @override
+  State<AboutPage> createState() => _AboutPageState();
+}
+
+class _AboutPageState extends State<AboutPage> {
+  final ValueNotifier<String> _version = ValueNotifier('');
 
   static const _originalAuthor = 'Moriafly';
   static const _originalRepo = 'https://github.com/Moriafly/SaltNoteSource';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersion();
+  }
+
+  @override
+  void dispose() {
+    _version.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    _version.value = '${info.version}(${info.buildNumber})';
+  }
 
   Future<void> _launch(BuildContext context, String url) async {
     final ok = await launchUrl(Uri.parse(url));
@@ -34,9 +61,14 @@ class AboutPage extends StatelessWidget {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
           ),
           const SizedBox(height: 4),
-          Center(
-            child: Text('版本 1.0.0',
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          ValueListenableBuilder<String>(
+            valueListenable: _version,
+            builder: (_, v, __) => Center(
+              child: Text(
+                v.isEmpty ? '版本 读取中…' : '版本 $v',
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           const Divider(),

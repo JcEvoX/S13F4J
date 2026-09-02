@@ -56,11 +56,30 @@ jobs:
       - name: Run tests
         run: flutter test
 
+      - name: Compute version
+        if: matrix.platform == 'android'
+        # 与 release 一致：版本名 = <距最近 v* tag 的提交数>.<短 commit id>，无 tag 基准 0.0.1。
+        # 这样 debug 产物也带上 commit 计数版本，而不是回落 pubspec 写死的 1.0.0。
+        id: version
+        run: |
+          BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "0.0.1")
+          if [ "$BASE" = "0.0.1" ]; then
+            COMMIT_NUM=$(git rev-list --count HEAD)
+          else
+            COMMIT_NUM=$(git rev-list --count "$BASE"..HEAD)
+          fi
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_NAME="${BASE#v}.${COMMIT_NUM}.r${SHORT}"
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
       - name: Build debug APKs (split by ABI)
         if: matrix.platform == 'android'
         # 与 release 一致按 ABI 拆分，避免产出塞入所有架构的 fat APK。
         # --target-platform 限定只构建 arm / arm64，排除 x86_64，产物为两个独立 debug APK。
-        run: flutter build apk --debug --split-per-abi --target-platform android-arm,android-arm64
+        # --build-name/--build-number 注入 commit 计数版本，确保 debug 与 release 版本一致。
+        run: flutter build apk --debug --split-per-abi --target-platform android-arm,android-arm64 --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
 
       - name: Upload debug APK artifacts
         if: matrix.platform == 'android'
