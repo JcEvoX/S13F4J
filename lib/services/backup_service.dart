@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/note_dao.dart';
@@ -66,18 +67,25 @@ class BackupService {
     List<NotePadNode> nodes,
   ) async {
     final dir = Directory(dirPath);
-    if (!await dir.exists()) throw const FileSystemException('备份文件夹不存在');
+    if (!await dir.exists()) {
+      debugPrint('[Backup] backupToDirectory: 文件夹不存在 $dirPath');
+      throw const FileSystemException('备份文件夹不存在');
+    }
     final name = backupFileName();
     final file = File('${dir.path}${Platform.pathSeparator}$name');
     await file.writeAsString(encodeBackup(nodes), flush: true);
+    debugPrint('[Backup] backupToDirectory 完成: ${file.path}, 节点=${nodes.length}');
     return name;
   }
 
   /// 读取备份文件并解析为节点列表。
   static Future<List<NotePadNode>> readBackupFile(String filePath) async {
+    debugPrint('[Backup] readBackupFile: $filePath');
     final file = File(filePath);
     final raw = await file.readAsString();
-    return decodeBackup(raw);
+    final nodes = decodeBackup(raw);
+    debugPrint('[Backup] readBackupFile 完成: ${nodes.length} 个节点');
+    return nodes;
   }
 
   /// 弹窗选择备份文件夹（返回 null 表示取消）。
@@ -116,17 +124,22 @@ class AutoBackupService {
 
   /// 立即执行一次自动备份（本地 + WebDAV，按配置决定）。
   Future<void> run() async {
+    debugPrint('[AutoBackup] run 开始, 节点读取中…');
     final settings = await SettingsService.instance;
     final nodes = await NoteDao().allNodes();
+    debugPrint('[AutoBackup] 节点数=${nodes.length}, local=${settings.autoBackupLocal}, webdav=${settings.autoBackupToWebdav}');
 
     if (settings.autoBackupLocal) {
       final dir = settings.backupFolder;
       if (dir != null && await Directory(dir).exists()) {
         try {
-          await BackupService.backupToDirectory(dir, nodes);
-        } catch (_) {
-          // 本地自动备份失败不打断流程
+          final name = await BackupService.backupToDirectory(dir, nodes);
+          debugPrint('[AutoBackup] 本地备份成功: $name');
+        } catch (e) {
+          debugPrint('[AutoBackup] 本地备份失败: $e');
         }
+      } else {
+        debugPrint('[AutoBackup] 本地备份跳过：未选择目录或目录不存在');
       }
     }
 
@@ -137,9 +150,12 @@ class AutoBackupService {
           final name = BackupService.backupFileName();
           await svc.uploadText(name, BackupService.encodeBackup(nodes));
           svc.close();
+          debugPrint('[AutoBackup] WebDAV 备份成功: $name');
+        } else {
+          debugPrint('[AutoBackup] WebDAV 备份跳过：未配置');
         }
-      } catch (_) {
-        // WebDAV 自动备份失败（离线 / 未配置）静默处理
+      } catch (e) {
+        debugPrint('[AutoBackup] WebDAV 备份失败: $e');
       }
     }
   }
@@ -148,9 +164,15 @@ class AutoBackupService {
   static Future<WebDavService?> _webdavFromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('webdav_config');
-    if (raw == null || raw.isEmpty) return null;
+    if (raw == null || raw.isEmpty) {
+      debugPrint('[AutoBackup] 未找到 WebDAV 配置');
+      return null;
+    }
     final parts = raw.split('\u0001');
-    if (parts.length < 3) return null;
+    if (parts.length < 3) {
+      debugPrint('[AutoBackup] WebDAV 配置不完整');
+      return null;
+    }
     return WebDavService.connect(
       WebDavConfig(url: parts[0], username: parts[1], password: parts[2]),
     );

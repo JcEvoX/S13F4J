@@ -27,12 +27,14 @@ class _RecentPageState extends State<RecentPage> {
   }
 
   Future<void> _load() async {
+    debugPrint('[Recent] 加载最近编辑文章');
     final items = await NoteDao().recentArticles();
     if (!mounted) return;
     setState(() {
       _items = items;
       _loading = false;
     });
+    debugPrint('[Recent] 加载完成: ${items.length} 篇');
   }
 
   @override

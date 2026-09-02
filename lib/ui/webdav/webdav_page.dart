@@ -61,6 +61,7 @@ class _WebDavPageState extends State<WebDavPage> {
       _toast('请填写地址与用户名');
       return;
     }
+    debugPrint('[WebDavPage] 连接: $url, user=$user');
     setState(() => _connecting = true);
     try {
       final service = await WebDavService.connect(
@@ -72,7 +73,9 @@ class _WebDavPageState extends State<WebDavPage> {
       await prefs.setString(_prefKey, _serialize(_cfg()));
       if (!mounted) return;
       setState(() => _message = '已连接 WebDAV 服务器');
+      debugPrint('[WebDavPage] 连接成功');
     } catch (e) {
+      debugPrint('[WebDavPage] 连接失败: $e');
       _toast('连接失败：$e');
     } finally {
       if (mounted) setState(() => _connecting = false);
@@ -105,10 +108,12 @@ class _WebDavPageState extends State<WebDavPage> {
     try {
       // 读取当前全部笔记（通过上次加载的数据）。实际实现可接线 DAO。
       const placeholder = '[{"app":"notepad"}]';
+      debugPrint('[WebDavPage] 上传备份 $name（注意：当前写入的是占位内容，未接真实数据）');
       await s.uploadText(name, placeholder);
       await _refreshList();
       _toast('备份成功：$name');
     } catch (e) {
+      debugPrint('[WebDavPage] 备份失败: $e');
       _toast('备份失败：$e');
     }
   }
@@ -133,20 +138,25 @@ class _WebDavPageState extends State<WebDavPage> {
     );
     if (ok != true) return;
     try {
+      debugPrint('[WebDavPage] 恢复 $name');
       await _service!.downloadText(name);
       // 此处接入 DAO 的反序列化恢复逻辑。
+      debugPrint('[WebDavPage] 恢复完成（注意：当前为示例逻辑，未实际写库）');
       _toast('已恢复（示例逻辑，未实际写入）');
     } catch (e) {
+      debugPrint('[WebDavPage] 恢复失败: $e');
       _toast('恢复失败：$e');
     }
   }
 
   Future<void> _deleteRemote(String name) async {
     try {
+      debugPrint('[WebDavPage] 删除远端备份 $name');
       await _service!.delete(name);
       await _refreshList();
       _toast('已删除远端备份：$name');
     } catch (e) {
+      debugPrint('[WebDavPage] 删除失败: $e');
       _toast('删除失败：$e');
     }
   }

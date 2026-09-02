@@ -235,11 +235,13 @@ class NoteProvider extends ChangeNotifier {
   // ---- 搜索 ----
 
   Future<void> search(String keyword) async {
+    debugPrint('[NoteProvider] search: "$keyword"');
     if (keyword.trim().isEmpty) {
       _searchResults = [];
     } else {
       _searchResults = await _dao.search(keyword.trim());
     }
+    debugPrint('[NoteProvider] search 结果: ${_searchResults.length} 条');
     notifyListeners();
   }
 

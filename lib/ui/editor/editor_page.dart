@@ -38,6 +38,7 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _load() async {
+    debugPrint('[Editor] 打开 nodeId=${widget.nodeId}');
     final provider = context.read<NoteProvider>();
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
@@ -51,6 +52,9 @@ class _EditorPageState extends State<EditorPage> {
         _updateWordCount();
       }
     });
+    debugPrint(node == null
+        ? '[Editor] 节点不存在或已删除 nodeId=${widget.nodeId}'
+        : '[Editor] 加载完成 title=${node.title}, 内容 ${node.content.length} 字符');
   }
 
   void _updateWordCount() {
@@ -99,10 +103,13 @@ class _EditorPageState extends State<EditorPage> {
   Future<void> _save() async {
     final node = _node;
     if (node == null || !_dirty || !mounted) return;
+    final len = _controller.text.length;
+    debugPrint('[Editor] 保存 nodeId=${node.id}, 内容 $len 字符');
     await context.read<NoteProvider>().updateNode(
           node.copyWith(content: _controller.text),
         );
     _dirty = false;
+    debugPrint('[Editor] 保存完成');
   }
 
   @override

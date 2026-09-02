@@ -74,6 +74,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
   }
 
   Future<void> _restore(BuildContext context, NoteProvider provider, NotePadNode node) async {
+    debugPrint('[RecycleBin] 恢复 nodeId=${node.id}, title=${node.title}');
     await provider.restoreFromRecycle([node]);
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -83,6 +84,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
   }
 
   Future<void> _purge(BuildContext context, NoteProvider provider, NotePadNode node) async {
+    debugPrint('[RecycleBin] 永久删除确认 nodeId=${node.id}, title=${node.title}');
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -101,6 +103,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       ),
     );
     if (ok == true) {
+      debugPrint('[RecycleBin] 确认永久删除 nodeId=${node.id}');
       await provider.purgeFromRecycle([node]);
     }
   }

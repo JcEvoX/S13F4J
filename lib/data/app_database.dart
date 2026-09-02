@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -25,7 +26,7 @@ class AppDatabase {
   /// 获取单例数据库。首次调用会初始化工厂并建表。
   static Future<Database> get instance async {
     if (_db != null) return _db!;
-
+    debugPrint('[AppDatabase] 初始化数据库（desktop=$isDesktop）');
     if (isDesktop) {
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
@@ -33,14 +34,21 @@ class AppDatabase {
 
     final dir = await getApplicationDocumentsDirectory();
     final path = p.join(dir.path, _dbName);
+    debugPrint('[AppDatabase] 打开数据库路径: $path');
 
-    _db = await databaseFactory.openDatabase(
-      path,
-      options: OpenDatabaseOptions(
-        version: _version,
-        onCreate: _onCreate,
-      ),
-    );
+    try {
+      _db = await databaseFactory.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: _version,
+          onCreate: _onCreate,
+        ),
+      );
+    } catch (e) {
+      debugPrint('[AppDatabase] 打开数据库失败: $e');
+      rethrow;
+    }
+    debugPrint('[AppDatabase] 数据库已就绪');
     return _db!;
   }
 

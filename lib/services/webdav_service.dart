@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:webdav_client/webdav_client.dart';
 
 /// WebDAV 连接配置。
@@ -43,6 +44,7 @@ class WebDavService {
   /// 登录并创建客户端。
   static Future<WebDavService> connect(WebDavConfig config) async {
     final base = _normalizeUrl(config.url);
+    debugPrint('[WebDav] connect: $base, user=${config.username}');
     final client = newClient(
       base,
       user: config.username,
@@ -54,7 +56,9 @@ class WebDavService {
     // 通过 ping 验证连通性与鉴权。
     try {
       await client.ping();
+      debugPrint('[WebDav] connect 成功');
     } catch (e) {
+      debugPrint('[WebDav] connect 失败: $e');
       throw ArgumentError('WebDAV 连接失败：$e\n请检查地址、用户名与密码');
     }
     return WebDavService._(client);
@@ -79,24 +83,28 @@ class WebDavService {
 
   /// 上传文本文件到备份目录。
   Future<void> uploadText(String name, String content) async {
+    debugPrint('[WebDav] uploadText: $backupDir/$name, ${content.length} 字符');
     await ensureBackupDir();
     await _client.write('$backupDir/$name', utf8.encode(content));
   }
 
   /// 上传数据库字节到备份目录。
   Future<void> uploadBytes(String name, Uint8List data) async {
+    debugPrint('[WebDav] uploadBytes: $backupDir/$name, ${data.length} 字节');
     await ensureBackupDir();
     await _client.write('$backupDir/$name', data);
   }
 
   /// 下载文件并解析为文本。
   Future<String> downloadText(String name) async {
+    debugPrint('[WebDav] downloadText: $backupDir/$name');
     final bytes = await _client.read('$backupDir/$name');
     return utf8.decode(bytes);
   }
 
   /// 下载文件字节。
   Future<List<int>> downloadBytes(String name) {
+    debugPrint('[WebDav] downloadBytes: $backupDir/$name');
     return _client.read('$backupDir/$name');
   }
 
@@ -104,23 +112,28 @@ class WebDavService {
   Future<List<String>> listBackups() async {
     try {
       final files = await _client.readDir(backupDir);
-      return files
+      final names = files
           .map((f) => f.name)
           .whereType<String>()
           .where((n) => n != backupDir)
           .toList();
-    } catch (_) {
+      debugPrint('[WebDav] listBackups: ${names.length} 个');
+      return names;
+    } catch (e) {
+      debugPrint('[WebDav] listBackups 失败: $e');
       return <String>[];
     }
   }
 
   /// 下载指定备份文件到本地路径。
   Future<void> downloadToFile(String name, String savePath) {
+    debugPrint('[WebDav] downloadToFile: $backupDir/$name -> $savePath');
     return _client.read2File('$backupDir/$name', savePath);
   }
 
   /// 删除指定备份文件。
   Future<void> delete(String name) {
+    debugPrint('[WebDav] delete: $backupDir/$name');
     return _client.remove('$backupDir/$name');
   }
 

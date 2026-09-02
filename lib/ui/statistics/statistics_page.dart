@@ -24,9 +24,11 @@ class _StatisticsPageState extends State<StatisticsPage> {
   }
 
   Future<void> _load() async {
+    debugPrint('[Statistics] 加载统计');
     final stat = await NoteDao().statistics();
     if (!mounted) return;
     setState(() => _stat = stat);
+    debugPrint('[Statistics] 加载完成: 文章=${stat.articles}, 文件夹=${stat.folders}, 字数=${stat.words}, 回收站=${stat.recycled}');
   }
 
   @override
@@ -131,15 +133,32 @@ class _StatisticsPageState extends State<StatisticsPage> {
     required String label,
     required String value,
   }) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: ListTile(
-        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
-        title: Text(label),
-        trailing: Text(
-          value,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+    final scheme = Theme.of(context).colorScheme;
+    final dim = Theme.of(context).brightness == Brightness.dark
+        ? Colors.white54
+        : Colors.grey.shade600;
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: dim.withOpacity(0.16), width: 0.5),
         ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 16),
+      child: Row(
+        children: [
+          Icon(icon, color: scheme.primary, size: 22),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 15, color: scheme.onSurface),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+        ],
       ),
     );
   }

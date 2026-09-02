@@ -70,6 +70,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                   subtitle: const Text('周期将数据备份到本地文件夹'),
                   value: s.autoBackupLocal,
                   onChanged: (v) {
+                    debugPrint('[BackupRestore] 本地自动备份 -> $v');
                     s.setAutoBackupLocal(v);
                     setState(() {});
                   },
@@ -79,6 +80,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                   title: const Text('自动备份到 WebDAV'),
                   value: s.autoBackupToWebdav,
                   onChanged: (v) {
+                    debugPrint('[BackupRestore] WebDAV 自动备份 -> $v');
                     s.setAutoBackupToWebdav(v);
                     setState(() {});
                   },
@@ -146,17 +148,23 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
 
   /// 选择本地备份文件夹。
   Future<void> _pickFolder(SettingsService s) async {
+    debugPrint('[BackupRestore] 选择备份文件夹');
     final dir = await BackupService.pickBackupDirectory();
-    if (dir == null) return;
+    if (dir == null) {
+      debugPrint('[BackupRestore] 选择已取消');
+      return;
+    }
     await s.setBackupFolder(dir);
     await s.setBackupFolderName(dir.split(RegExp(r'[/\\]')).last);
     if (mounted) setState(() {});
+    debugPrint('[BackupRestore] 已选择备份文件夹: $dir');
   }
 
   /// 手动备份到本地（选择目录写入 JSON）。
   Future<void> _backupToLocal(SettingsService s) async {
     if (_busy) return;
     setState(() => _busy = true);
+    debugPrint('[BackupRestore] 备份到本地开始');
     try {
       final dir = await BackupService.pickBackupDirectory() ?? s.backupFolder;
       if (dir == null) {
@@ -165,8 +173,10 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
       }
       final nodes = await NoteDao().allNodes();
       final name = await BackupService.backupToDirectory(dir, nodes);
+      debugPrint('[BackupRestore] 备份到本地完成: $name');
       _toast(name == null ? '备份已取消' : '备份成功：$name');
     } catch (e) {
+      debugPrint('[BackupRestore] 备份到本地失败: $e');
       _toast('备份失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -176,18 +186,23 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   /// 从本地备份文件恢复（覆盖当前数据）。
   Future<void> _restore() async {
     if (_busy) return;
+    debugPrint('[BackupRestore] 恢复备份开始');
     final file = await openFile(
       acceptedTypeGroups: const [
         XTypeGroup(label: '备份文件', extensions: ['json']),
       ],
     );
-    if (file == null) return;
+    if (file == null) {
+      debugPrint('[BackupRestore] 未选择备份文件');
+      return;
+    }
     if (!mounted) return;
 
     List<NotePadNode> nodes;
     try {
       nodes = await BackupService.readBackupFile(file.path);
     } catch (e) {
+      debugPrint('[BackupRestore] 备份文件解析失败: $e');
       _toast('备份文件解析失败：$e');
       return;
     }
@@ -212,14 +227,17 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     if (ok != true) return;
 
     setState(() => _busy = true);
+    debugPrint('[BackupRestore] 确认恢复: ${file.name}, 节点=${nodes.length}');
     try {
       final dao = NoteDao();
       await dao.replaceAll(nodes);
       if (!mounted) return;
       await context.read<NoteProvider>().refresh();
       await context.read<NoteProvider>().loadRecycleBin();
+      debugPrint('[BackupRestore] 恢复完成');
       _toast('恢复成功');
     } catch (e) {
+      debugPrint('[BackupRestore] 恢复失败: $e');
       _toast('恢复失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);

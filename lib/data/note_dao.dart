@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../data/app_database.dart';
@@ -58,6 +59,7 @@ class NoteDao {
   /// 批量保存（用于拖拽排序、多选移动后的批量落库）。
   Future<void> saveNodes(List<NotePadNode> nodes) async {
     final db = await AppDatabase.instance;
+    debugPrint('[NoteDao] saveNodes: ${nodes.length} 个节点');
     await db.transaction((txn) async {
       for (final n in nodes) {
         await txn.insert(
@@ -67,12 +69,14 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] saveNodes 完成');
   }
 
   /// 逻辑删除：移入回收站（写入 deleted_at）。
   Future<void> moveToRecycleBin(List<NotePadNode> nodes) async {
     final db = await AppDatabase.instance;
     final now = DateTime.now().millisecondsSinceEpoch;
+    debugPrint('[NoteDao] moveToRecycleBin: ids=${nodes.map((n) => n.id).toList()}');
     await db.transaction((txn) async {
       for (final n in nodes) {
         await txn.update(
@@ -87,6 +91,7 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] moveToRecycleBin 完成');
   }
 
   /// 从回收站恢复（包括其下所有后代节点）。
@@ -94,6 +99,7 @@ class NoteDao {
     final db = await AppDatabase.instance;
     final ids = await _collectIds(roots);
     final now = DateTime.now().millisecondsSinceEpoch;
+    debugPrint('[NoteDao] restoreNodes: ids=$ids');
     await db.transaction((txn) async {
       for (final id in ids) {
         await txn.update(
@@ -104,12 +110,14 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] restoreNodes 完成: ${ids.length} 个');
   }
 
   /// 永久删除（含所有后代节点）。
   Future<void> deletePermanently(List<NotePadNode> roots) async {
     final db = await AppDatabase.instance;
     final ids = await _collectIds(roots);
+    debugPrint('[NoteDao] deletePermanently: ids=$ids');
     await db.transaction((txn) async {
       for (final id in ids) {
         await txn.delete(
@@ -119,6 +127,7 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] deletePermanently 完成: ${ids.length} 个');
   }
 
   /// 递归收集一个节点集合及其全部后代的 id。
@@ -180,6 +189,7 @@ class NoteDao {
   Future<void> moveTo(List<String> ids, String? targetParentId) async {
     final db = await AppDatabase.instance;
     final now = DateTime.now().millisecondsSinceEpoch;
+    debugPrint('[NoteDao] moveTo: ids=$ids, 目标=$targetParentId');
     await db.transaction((txn) async {
       for (final id in ids) {
         await txn.update(
@@ -190,6 +200,7 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] moveTo 完成: ${ids.length} 项');
   }
 
   /// 自动备份：读取全部未回收节点（导出用基础）。
@@ -281,6 +292,7 @@ class NoteDao {
   /// 恢复备份：清空现有数据并整库写入（事务内完成）。
   Future<void> replaceAll(List<NotePadNode> nodes) async {
     final db = await AppDatabase.instance;
+    debugPrint('[NoteDao] replaceAll: ${nodes.length} 个节点');
     await db.transaction((txn) async {
       await txn.delete(AppDatabase.tableNode);
       for (final n in nodes) {
@@ -291,6 +303,7 @@ class NoteDao {
         );
       }
     });
+    debugPrint('[NoteDao] replaceAll 完成');
   }
 }
 
