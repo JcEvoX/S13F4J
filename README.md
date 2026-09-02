@@ -82,4 +82,4 @@ flutter run -d linux
 
 ## 📄 许可
 
-本项目**禁止任何商业用途**，详情见 `LICENSE`。
+本项目基于 [GPL-3.0](https://www.gnu.org/licenses/gpl-3.0.html) 协议开源，详情见 `LICENSE`。
