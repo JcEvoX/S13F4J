@@ -60,11 +60,13 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /// 新建文件夹：弹出输入名称的对话框（贴近原版）。
+  /// 新建文件夹：底部弹出输入名称的面板（贴近原版 DialogX BottomDialog）。
   Future<void> _showFolderCreateDialog() async {
-    await showDialog<void>(
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (_) => const _FolderCreateDialog(),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _FolderCreateSheet(),
     );
   }
 
@@ -484,15 +486,18 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
-/// 新建文件夹对话框（贴近原版：展示文件夹图标，输入名称后创建）。
-class _FolderCreateDialog extends StatefulWidget {
-  const _FolderCreateDialog();
+/// 新建文件夹底部面板（贴近原版 DialogX BottomDialog）。
+///
+/// 从屏幕底部滑出、顶部圆角 + 拖拽把手，含标题、文件夹图标、
+/// 名称输入框以及右下角「取消 / 确定」按钮。
+class _FolderCreateSheet extends StatefulWidget {
+  const _FolderCreateSheet();
 
   @override
-  State<_FolderCreateDialog> createState() => _FolderCreateDialogState();
+  State<_FolderCreateSheet> createState() => _FolderCreateSheetState();
 }
 
-class _FolderCreateDialogState extends State<_FolderCreateDialog> {
+class _FolderCreateSheetState extends State<_FolderCreateSheet> {
   final _controller = TextEditingController();
 
   @override
@@ -512,34 +517,82 @@ class _FolderCreateDialogState extends State<_FolderCreateDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('新建文件夹'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const NodeIcon(isFolder: true, size: 56),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _create(),
-            decoration: const InputDecoration(
-              hintText: '输入文件夹名称',
-            ),
-          ),
-        ],
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final colors = theme.colorScheme;
+    // 输入框弹出时整体上移，避免被键盘遮挡。
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF2E2E2E) : Colors.white,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+      padding: EdgeInsets.only(bottom: bottomInset),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 拖拽把手（原版 img_tab）。
+              Center(
+                child: Container(
+                  width: 32,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black26,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  const NodeIcon(isFolder: true, size: 24),
+                  const SizedBox(width: 10),
+                  Text(
+                    '新建文件夹',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: colors.onSurface,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _create(),
+                decoration: const InputDecoration(
+                  hintText: '请输入文件夹名称',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('取消'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton(
+                    onPressed: _create,
+                    child: const Text('确定'),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        FilledButton(
-          onPressed: _create,
-          child: const Text('创建'),
-        ),
-      ],
+      ),
     );
   }
 }
