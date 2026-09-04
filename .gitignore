@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Kotlin 编译器会话缓存（构建产物，不入库）
+android/.kotlin/
