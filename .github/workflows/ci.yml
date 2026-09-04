@@ -54,11 +54,15 @@ jobs:
       # Flutter 3.47 默认 ndkVersion = 28.2.13676358，GitHub runner 预装版本
       # 可能不匹配。AGP 在缺版本时走 sdkmanager 自动下载，偶发 zip 损坏导致
       # 构建失败，这里显式安装，保证与本地/发布一致。
+      # 注意：GitHub runner 的 sdkmanager 不在 PATH 中，须用完整路径。
       - name: Install Android NDK
         if: matrix.platform == 'android'
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          yes | sdkmanager --install "ndk;28.2.13676358"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(command -v sdkmanager || true); fi
+          if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found"; exit 1; fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install "ndk;28.2.13676358"
 
       - name: Install dependencies
         run: flutter pub get
