@@ -150,5 +150,21 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS (no codesign)
+      # --no-codesign：GitHub runner 无 Apple 签名凭据，仅构建无签名产物。
+      # flutter build ipa --no-codesign 会跳过 IPA 生成，故先出 .app 再手动封装。
+      - name: Build iOS app (no codesign)
         run: flutter build ios --debug --no-codesign
+
+      - name: Package IPA (no codesign)
+        run: |
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/*.app dist/Payload/
+          cd dist && zip -qr "NotePad-debug.ipa" Payload
+          cd .. && rm -rf dist/Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: notepad-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
