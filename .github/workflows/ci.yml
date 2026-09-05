@@ -1,0 +1,170 @@
+name: CI
+
+# 任意分支 push 或 PR 时触发：运行静态分析、单元测试并编译 debug 产物。
+
+on:
+  push:
+    branches-ignore:
+      - 'automation-schedule-permacache/**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Analyze + Test + Build debug
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 移动端 / 桌面端平台目录会随 flutter pub get 生成，
+        # 这里先在 Android 上做完整验证，桌面端留待在对应系统 runner 上扩展。
+        platform: [android]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史 + tags 来计算版本号（基于 commit 计数）。
+          # 默认浅克隆（depth=1）会让 git rev-list --count HEAD 返回 1，
+          # 导致版本号退化成 0.0.1.1.rxxxxxxx，且无法识别 v* tag。
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Enable desktop scaffolding (linux)
+        if: matrix.platform == 'linux'
+        run: flutter config --enable-linux-desktop
+
+      # Flutter 3.47 默认 ndkVersion = 28.2.13676358，GitHub runner 预装版本
+      # 可能不匹配。AGP 在缺版本时走 sdkmanager 自动下载，偶发 zip 损坏导致
+      # 构建失败，这里显式安装，保证与本地/发布一致。
+      # 注意：GitHub runner 的 sdkmanager 不在 PATH 中，须用完整路径。
+      - name: Install Android NDK
+        if: matrix.platform == 'android'
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(command -v sdkmanager || true); fi
+          if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found"; exit 1; fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        # --no-fatal-infos：不同 Flutter 版本对 deprecated 提示的 info 级别不同，
+        # 只阻断 warning / error，避免因版本差异导致误判失败。
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
+      - name: Compute version
+        if: matrix.platform == 'android'
+        # 与 release 一致：版本名 = <距最近 v* tag 的提交数>.<短 commit id>，无 tag 基准 0.0.1。
+        # 这样 debug 产物也带上 commit 计数版本，而不是回落 pubspec 写死的 1.0.0。
+        id: version
+        run: |
+          BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "0.0.1")
+          if [ "$BASE" = "0.0.1" ]; then
+            COMMIT_NUM=$(git rev-list --count HEAD)
+          else
+            COMMIT_NUM=$(git rev-list --count "$BASE"..HEAD)
+          fi
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_NAME="${BASE#v}.${COMMIT_NUM}.r${SHORT}"
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "base=$BASE"
+          echo "commit_num=$COMMIT_NUM"
+          echo "version_name=$VERSION_NAME"
+          echo "version_code=$VERSION_CODE"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      # 分 ABI 单独构建（不用 --split-per-abi）：Flutter 的 split-per-abi 会给每个
+      # 架构自动追加不同的 versionCode（base*1000+abiIndex，如 1001/2001），
+      # 导致 v7a / v8a 版本号不一致。逐架构构建则两者 versionCode/versionName 完全相同。
+      - name: Build debug APK (armeabi-v7a)
+        if: matrix.platform == 'android'
+        run: |
+          flutter build apk --debug --target-platform android-arm \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+            build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+
+      - name: Build debug APK (arm64-v8a)
+        if: matrix.platform == 'android'
+        run: |
+          flutter build apk --debug --target-platform android-arm64 \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          cp build/app/outputs/flutter-apk/app-debug.apk \
+            build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+
+      - name: Upload debug APK (armeabi-v7a)
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: notepad-debug-armeabi-v7a
+          path: build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
+          if-no-files-found: error
+
+      - name: Upload debug APK (arm64-v8a)
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: notepad-debug-arm64-v8a
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+          if-no-files-found: error
+
+  ios:
+    name: Build iOS (debug, no codesign)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      # --no-codesign：GitHub runner 无 Apple 签名凭据，仅构建无签名产物。
+      # flutter build ipa --no-codesign 会跳过 IPA 生成，故先出 .app 再手动封装。
+      - name: Build iOS app (no codesign)
+        run: flutter build ios --debug --no-codesign
+
+      - name: Package IPA (no codesign)
+        run: |
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/*.app dist/Payload/
+          cd dist && zip -qr "NotePad-debug.ipa" Payload
+          cd .. && rm -rf dist/Payload
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: notepad-ipa
+          path: dist/*.ipa
+          if-no-files-found: error

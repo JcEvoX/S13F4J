@@ -1,0 +1,290 @@
+import 'package:flutter/foundation.dart';
+
+import '../data/note_dao.dart';
+import '../models/note.dart';
+
+/// 全局数据状态管理。
+///
+/// 持有当前层级列表、选中集合、回收站列表等状态，并对用户操作
+/// （新建、删除、恢复、排序、移动、搜索）进行分发的单一入口。
+class NoteProvider extends ChangeNotifier {
+  NoteProvider({NoteDao? dao}) : _dao = dao ?? NoteDao();
+
+  final NoteDao _dao;
+
+  /// 当前展示层级下的节点列表。
+  List<NotePadNode> _nodes = [];
+  List<NotePadNode> get nodes => _nodes;
+
+  /// 当前层级父节点 id（null 为根层级）。
+  String? _currentParentId;
+  String? get currentParentId => _currentParentId;
+
+  /// 当前是否处于多选模式。
+  bool _selectionMode = false;
+  bool get selectionMode => _selectionMode;
+
+  /// 被选中的节点 id 集合。
+  final Set<String> _selectedIds = {};
+  Set<String> get selectedIds => Set.unmodifiable(_selectedIds);
+
+  /// 回收站顶层节点列表。
+  List<NotePadNode> _recycleNodes = [];
+  List<NotePadNode> get recycleNodes => _recycleNodes;
+
+  /// 搜索结果缓存。
+  List<NotePadNode> _searchResults = [];
+  List<NotePadNode> get searchResults => _searchResults;
+
+  /// 当前正在编辑的文章 id（编辑器打开时写入，供首页「定位」使用）。
+  String? _currentEditingNodeId;
+  String? get currentEditingNodeId => _currentEditingNodeId;
+
+  /// 记录当前正在编辑的文章（编辑器页打开/关闭时调用）。
+  void setCurrentEditingNodeId(String? id) {
+    if (_currentEditingNodeId == id) return;
+    _currentEditingNodeId = id;
+    debugPrint('[NoteProvider] 当前编辑文章: $id');
+    notifyListeners();
+  }
+
+  bool _loading = false;
+  bool get loading => _loading;
+
+  String? _error;
+  String? get error => _error;
+
+  /// 加载某个层级的内容。
+  ///
+  /// 使用 [try]/[finally] 确保加载完成后必定复位 loading 状态，
+  /// 避免首次开库/建表失败时界面永久停留在「加载中」。
+  Future<void> loadFolder(String? parentId) async {
+    debugPrint('[NoteProvider] loadFolder: 层级=$parentId');
+    _currentParentId = parentId;
+    _loading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      _nodes = await _dao.childrenOf(parentId: parentId);
+      debugPrint('[NoteProvider] loadFolder 完成: 层级=$parentId, 节点=${_nodes.length}');
+    } catch (e) {
+      _error = '$e';
+      debugPrint('[NoteProvider] loadFolder 失败: $e');
+    } finally {
+      exitSelection();
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
+  /// 记录返回栈，用于「返回上层」。
+  final List<String?> _backStack = [];
+
+  void pushCurrent() {
+    _backStack.add(_currentParentId);
+  }
+
+  Future<void> refresh() async {
+    _nodes = await _dao.childrenOf(parentId: _currentParentId);
+    debugPrint('[NoteProvider] refresh: 层级=$_currentParentId, 节点=${_nodes.length}');
+    notifyListeners();
+  }
+
+  /// 返回上一层。返回值为是否成功返回（无栈则无操作）。
+  Future<bool> navigateUp() async {
+    if (_backStack.isEmpty) return false;
+    final target = _backStack.removeLast();
+    await loadFolder(target);
+    return true;
+  }
+
+  /// 进入某子文件夹（记录返回栈）。
+  Future<void> openFolder(NotePadNode folder) async {
+    pushCurrent();
+    await loadFolder(folder.id);
+  }
+
+  /// 获取全部未回收文件夹（用于移动定位）。
+  Future<List<NotePadNode>> allFolders() async {
+    return _dao.allFolders();
+  }
+
+  /// 新建节点（文件或文件夹）。
+  Future<NotePadNode> createNode({
+    required bool isFolder,
+    required String title,
+    String content = '',
+  }) async {
+    debugPrint('[NoteProvider] createNode: isFolder=$isFolder, title=$title, parentId=$_currentParentId');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final node = NotePadNode(
+      id: now.toString(),
+      isFolder: isFolder,
+      title: title,
+      content: content,
+      parentId: _currentParentId,
+      sortOrder: _nodes.length,
+      isRecycled: false,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await _dao.saveNode(node);
+    await refresh();
+    debugPrint('[NoteProvider] createNode 完成: id=${node.id}');
+    return node;
+  }
+
+  /// 更新节点内容（编辑时实时保存）。
+  Future<void> updateNode(NotePadNode updated) async {
+    debugPrint('[NoteProvider] updateNode: id=${updated.id}, parentId=${updated.parentId}');
+    final merged = updated.copyWith(
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _dao.saveNode(merged);
+    await refresh();
+  }
+
+  // ---- 选中 / 多选 ----
+
+  void enterSelection(NotePadNode node) {
+    _selectionMode = true;
+    _selectedIds.clear();
+    _selectedIds.add(node.id);
+    notifyListeners();
+  }
+
+  void toggleSelection(String id) {
+    if (_selectedIds.contains(id)) {
+      _selectedIds.remove(id);
+    } else {
+      _selectedIds.add(id);
+    }
+    if (_selectedIds.isEmpty) {
+      _selectionMode = false;
+    }
+    notifyListeners();
+  }
+
+  void enterFullSelection() {
+    if (_nodes.isEmpty) return;
+    _selectionMode = true;
+    for (final n in _nodes) {
+      _selectedIds.add(n.id);
+    }
+    notifyListeners();
+  }
+
+  void exitSelection() {
+    _selectionMode = false;
+    _selectedIds.clear();
+    notifyListeners();
+  }
+
+  /// 当前被选中的节点对象列表。
+  List<NotePadNode> get selectedNodes =>
+      _nodes.where((n) => _selectedIds.contains(n.id)).toList();
+
+  // ---- 删除 / 回收站 ----
+
+  /// 将选中（或给定）节点移入回收站。
+  Future<void> deleteToRecycle(List<NotePadNode> targets) async {
+    debugPrint('[NoteProvider] deleteToRecycle: ids=${targets.map((n) => n.id).toList()}');
+    await _dao.moveToRecycleBin(targets);
+    exitSelection();
+    await refresh();
+    await loadRecycleBin();
+    debugPrint('[NoteProvider] deleteToRecycle 完成');
+  }
+
+  Future<void> loadRecycleBin() async {
+    _recycleNodes = await _dao.recycleBin();
+    debugPrint('[NoteProvider] loadRecycleBin: ${_recycleNodes.length} 项');
+    notifyListeners();
+  }
+
+  Future<void> restoreFromRecycle(List<NotePadNode> targets) async {
+    debugPrint('[NoteProvider] restoreFromRecycle: ids=${targets.map((n) => n.id).toList()}');
+    await _dao.restoreNodes(targets);
+    await loadRecycleBin();
+    debugPrint('[NoteProvider] restoreFromRecycle 完成');
+  }
+
+  Future<void> purgeFromRecycle(List<NotePadNode> targets) async {
+    debugPrint('[NoteProvider] purgeFromRecycle: ids=${targets.map((n) => n.id).toList()}');
+    await _dao.deletePermanently(targets);
+    await loadRecycleBin();
+    debugPrint('[NoteProvider] purgeFromRecycle 完成');
+  }
+
+  // ---- 排序 / 移动 ----
+
+  /// 拖拽重排：更新子节点的 sort_order 并批量落库。
+  ///
+  /// 注意：新版 [ReorderableListView.onReorderItem] 的 `newIndex` 已自动
+  /// 按「移除 oldIndex 项」调整过，这里直接 removeAt + insert 即可。
+  Future<void> reorder(int oldIndex, int newIndex) async {
+    debugPrint('[NoteProvider] reorder: $oldIndex -> $newIndex');
+    final updated = List<NotePadNode>.from(_nodes);
+    final moved = updated.removeAt(oldIndex);
+    updated.insert(newIndex, moved);
+    for (var i = 0; i < updated.length; i++) {
+      updated[i] = updated[i].copyWith(sortOrder: i);
+    }
+    _nodes = updated;
+    notifyListeners();
+    await _dao.saveNodes(updated);
+    debugPrint('[NoteProvider] reorder 完成');
+  }
+
+  /// 将选中节点移动到目标层级。
+  Future<void> moveSelectedTo(String? targetParentId) async {
+    final ids = selectedNodes.map((n) => n.id).toList();
+    debugPrint('[NoteProvider] moveSelectedTo: ids=$ids, 目标=$targetParentId');
+    await _dao.moveTo(ids, targetParentId);
+    exitSelection();
+    await refresh();
+    debugPrint('[NoteProvider] moveSelectedTo 完成，当前父节点=$_currentParentId');
+  }
+
+  // ---- 搜索 ----
+
+  Future<void> search(String keyword) async {
+    debugPrint('[NoteProvider] search: "$keyword"');
+    if (keyword.trim().isEmpty) {
+      _searchResults = [];
+    } else {
+      _searchResults = await _dao.search(keyword.trim());
+    }
+    debugPrint('[NoteProvider] search 结果: ${_searchResults.length} 条');
+    notifyListeners();
+  }
+
+  Future<NotePadNode?> nodeById(String id) => _dao.nodeById(id);
+
+  /// 定位到指定节点：沿父链向上逐层进入，直到其所在层级成为当前列表。
+  ///
+  /// 返回节点在当前列表中的下标；节点不存在、已回收或不在任何可见层级时返回 null。
+  Future<int?> navigateToNode(String nodeId) async {
+    debugPrint('[NoteProvider] navigateToNode: $nodeId');
+    final node = await _dao.nodeById(nodeId);
+    if (node == null || node.isRecycled) {
+      debugPrint('[NoteProvider] navigateToNode 失败：节点不存在或已回收');
+      return null;
+    }
+    // 从节点所在层向上收集祖先文件夹 id（由内到外）。
+    final ancestors = <String?>[];
+    String? parent = node.parentId;
+    while (parent != null) {
+      ancestors.add(parent);
+      final p = await _dao.nodeById(parent);
+      parent = p?.parentId;
+    }
+    // 由外到内逐层进入，使当前列表最终为节点所在层。
+    for (final folderId in ancestors.reversed) {
+      await loadFolder(folderId);
+    }
+    final index = _nodes.indexWhere((n) => n.id == nodeId);
+    debugPrint('[NoteProvider] navigateToNode 完成，index=$index');
+    return index >= 0 ? index : null;
+  }
+}

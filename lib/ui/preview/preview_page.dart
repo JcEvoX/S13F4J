@@ -1,0 +1,225 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:markdown/markdown.dart' as md;
+import 'package:cached_network_image/cached_network_image.dart';
+
+import '../../services/settings_service.dart';
+import '../editor/export/export_service.dart';
+import 'latex_syntax.dart';
+import 'markdown_preview_settings_page.dart';
+import 'mermaid_renderer.dart';
+
+/// Markdown 预览页。
+///
+/// 覆盖常见 Markdown 元素渲染，并针对代码块、HTML、网络图片提供
+/// 一定程度的支持。同时提供导出为图片 / 纯文本 / Markdown / PDF。
+class PreviewPage extends StatefulWidget {
+  const PreviewPage({super.key, required this.title, required this.content});
+
+  final String title;
+  final String content;
+
+  @override
+  State<PreviewPage> createState() => _PreviewPageState();
+}
+
+class _PreviewPageState extends State<PreviewPage> {
+  final GlobalKey _renderKey = GlobalKey();
+  bool _exporting = false;
+  bool _mathJax = false;
+  bool _mermaid = false;
+
+  /// 预览 / 源码切换（原版顶部「预览」图标）。
+  bool _showSource = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final s = await SettingsService.instance;
+    if (!mounted) return;
+    setState(() {
+      _mathJax = s.mathJax;
+      _mermaid = s.mermaid;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      // 原版顶部图标行：预览设置 / 导出 / 预览(源码切换) / 关闭。
+      appBar: AppBar(
+        title: Text(widget.title.isEmpty ? '预览' : widget.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.tune),
+            tooltip: '预览设置',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MarkdownPreviewSettingsPage(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: '导出',
+            onPressed: _showExportSheet,
+          ),
+          IconButton(
+            icon: Icon(
+              _showSource ? Icons.visibility_outlined : Icons.code_outlined,
+            ),
+            tooltip: '预览',
+            onPressed: () => setState(() => _showSource = !_showSource),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close),
+            tooltip: '关闭',
+            onPressed: () => Navigator.of(context).pop(),
+          ),
+          const SizedBox(width: 4),
+        ],
+      ),
+      body: Column(
+        children: [
+          if (_exporting)
+            const LinearProgressIndicator(minHeight: 2),
+          Expanded(
+            child: RepaintBoundary(
+              key: _renderKey,
+              child: _showSource
+                  ? _buildSource()
+                  : MarkdownBody(
+                      data: widget.content,
+                      selectable: true,
+                      builders: {
+                        'img': _ImageBuilder(),
+                        if (_mathJax) 'math': LatexElementBuilder(),
+                        if (_mathJax) 'math-block': LatexElementBuilder(display: true),
+                        if (_mermaid) 'mermaid': MermaidTagBuilder(),
+                      },
+                      blockSyntaxes: _mermaid ? const [MermaidBlockSyntax()] : null,
+                      inlineSyntaxes: _mathJax
+                          ? [LatexDisplayInlineSyntax(), LatexInlineSyntax()]
+                          : null,
+                    ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 源码视图：等宽字体展示原始 Markdown 文本。
+  Widget _buildSource() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: SelectableText(
+        widget.content,
+        style: TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 14,
+          height: 1.6,
+          color: isDark ? Colors.white : const Color(0xFF191B23),
+        ),
+      ),
+    );
+  }
+
+  void _showExportSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.image_outlined),
+              title: const Text('导出为图片'),
+              onTap: () => _export(ExportKind.image),
+            ),
+            ListTile(
+              leading: const Icon(Icons.text_fields),
+              title: const Text('导出为纯文本 (.txt)'),
+              onTap: () => _export(ExportKind.text),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note),
+              title: const Text('导出为 Markdown (.md)'),
+              onTap: () => _export(ExportKind.markdown),
+            ),
+            ListTile(
+              leading: const Icon(Icons.picture_as_pdf),
+              title: const Text('导出为 PDF'),
+              onTap: () => _export(ExportKind.pdf),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _export(ExportKind kind) async {
+    Navigator.pop(context);
+    setState(() => _exporting = true);
+    final service = ExportService();
+    try {
+      await service.export(
+        context,
+        kind: kind,
+        title: widget.title,
+        content: widget.content,
+        renderBoundary: kind == ExportKind.image ? _renderKey : null,
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('导出完成')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('导出失败: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+}
+
+/// 网络图片 builder：使用缓存网络图片，节省流量（对应原「网络图片缓存」）。
+class _ImageBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfter(
+    md.Element element,
+    TextStyle? preferredStyle,
+  ) {
+    final src = element.attributes['src'];
+    if (src == null) return null;
+    final isNetwork = src.startsWith('http://') || src.startsWith('https://');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: isNetwork
+          ? CachedNetworkImage(
+              imageUrl: src,
+              fit: BoxFit.contain,
+              placeholder: (_, __) => const SizedBox(
+                height: 24,
+                child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+              errorWidget: (_, __, ___) => const Text('图片加载失败'),
+            )
+          : Image.network(src, fit: BoxFit.contain, errorBuilder: (_, __, ___) {
+              return Text(src);
+            }),
+    );
+  }
+}

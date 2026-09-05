@@ -1,0 +1,224 @@
+name: Release
+
+# 推送 v* 版本标签（如 v1.0.0）时触发：编译 release 产物并发布到 GitHub Release。
+#
+# 说明：仓库默认未配置签名 keystore，Flutter 会使用 debug 签名生成可安装的 APK。
+# 如需正式签名发布，请在仓库 Settings -> Secrets 配置
+#   ANDROID_SIGNING_KEY  (base64 编码的 keystore)
+#   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+# 并解除下方 release 签名步骤的注释。
+
+# 触发方式：
+#   1. 推送 v* 版本标签（如 v1.0.0）——发大版本
+#   2. 手动触发（Actions -> Release -> Run workflow，可指定分支）——发小版本/小优化，
+#      版本号自动基于 commit 计数递增，无需手动升大版本号。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 需要完整历史 + tags 来计算版本号（基于 commit 计数）
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      # Flutter 3.47 默认 ndkVersion = 28.2.13676358，与 ci.yml 保持一致。
+      # 显式安装，避免 AGP 自动下载 NDK 时偶发 zip 损坏导致构建失败。
+      # 注意：GitHub runner 的 sdkmanager 不在 PATH 中，须用完整路径。
+      - name: Install Android NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then SDKMANAGER=$(command -v sdkmanager || true); fi
+          if [ -z "$SDKMANAGER" ]; then echo "sdkmanager not found"; exit 1; fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          yes | "$SDKMANAGER" --install "ndk;28.2.13676358"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze --no-fatal-infos
+
+      - name: Run tests
+        run: flutter test
+
+      # - name: Import signing keystore
+      #   if: env.ANDROID_SIGNING_KEY != ''
+      #   env:
+      #     ANDROID_SIGNING_KEY: ${{ secrets.ANDROID_SIGNING_KEY }}
+      #     ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      #   run: |
+      #     echo "$ANDROID_SIGNING_KEY" | base64 -d > signing-key.jks
+      #     mkdir -p android/key.properties
+      #     cat > android/key.properties <<EOF
+      #     storePassword=$ANDROID_KEYSTORE_PASSWORD
+      #     keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+      #     keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+      #     storeFile=../signing-key.jks
+      #     EOF
+
+      - name: Compute version
+        # 版本名 = <距最近 v* tag 的提交数>.<短 commit id>，基准为最近的大版本 tag（无 tag 用 0.0.1）。
+        # 例：最近 tag v1.2.0、其后 5 次提交、HEAD=3f2a1b7 -> versionName=1.2.0.5.r3f2a1b7
+        # versionCode 用总提交数，保证单调递增（Android 要求整型递增）。
+        id: version
+        run: |
+          BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "0.0.1")
+          if [ "$BASE" = "0.0.1" ]; then
+            COMMIT_NUM=$(git rev-list --count HEAD)
+          else
+            COMMIT_NUM=$(git rev-list --count "$BASE"..HEAD)
+          fi
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_NAME="${BASE#v}.${COMMIT_NUM}.r${SHORT}"
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "base=$BASE"
+          echo "commit_num=$COMMIT_NUM"
+          echo "version_name=$VERSION_NAME"
+          echo "version_code=$VERSION_CODE"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      # 分 ABI 单独构建（不用 --split-per-abi）：Flutter 的 split-per-abi 会给每个
+      # 架构自动追加不同的 versionCode（base*1000+abiIndex，如 1001/2001），
+      # 导致 v7a / v8a 版本号不一致。逐架构构建则两者 versionCode/versionName 完全相同。
+      - name: Build release APK (armeabi-v7a)
+        run: |
+          flutter build apk --release --target-platform android-arm \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/NotePad-${{ steps.version.outputs.version_name }}-armeabi-v7a.apk"
+
+      - name: Build release APK (arm64-v8a)
+        run: |
+          flutter build apk --release --target-platform android-arm64 \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            "dist/NotePad-${{ steps.version.outputs.version_name }}-arm64-v8a.apk"
+
+      - name: Build release AAB
+        run: flutter build appbundle --release --build-name=${{ steps.version.outputs.version_name }} --build-number=${{ steps.version.outputs.version_code }}
+
+      - name: Package artifacts
+        env:
+          VER: ${{ steps.version.outputs.version_name }}
+        run: |
+          cp build/app/outputs/bundle/release/app-release.aab "dist/NotePad-${VER}.aab"
+          ls -lh dist/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: NotePad ${{ steps.version.outputs.version_name }}
+          files: dist/*
+          generate_release_notes: true
+          draft: true
+
+  ios:
+    name: Build IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # 与 Android job 一致：需要完整历史 + tags 计算版本号。
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Compute version
+        id: version
+        run: |
+          BASE=$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null || echo "0.0.1")
+          if [ "$BASE" = "0.0.1" ]; then
+            COMMIT_NUM=$(git rev-list --count HEAD)
+          else
+            COMMIT_NUM=$(git rev-list --count "$BASE"..HEAD)
+          fi
+          SHORT=$(git rev-parse --short=7 HEAD)
+          VERSION_NAME="${BASE#v}.${COMMIT_NUM}.r${SHORT}"
+          VERSION_CODE=$(git rev-list --count HEAD)
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
+      # 默认 --no-codesign：产出无签名的 .ipa（可下载，用于自签/测试，无法直接上架）。
+      # 注意：flutter build ipa --no-codesign 会跳过 IPA 生成（skipping IPA），
+      # 因此先用 build ios 产出 .app，再手动封装成 Payload/xxx.ipa。
+      # 如需正式签名分发，请在仓库 Settings -> Secrets 配置
+      #   IOS_P12_BASE64 / IOS_P12_PASSWORD / IOS_PROVISIONING_PROFILE_BASE64
+      # 并解除下方签名步骤注释，改用 flutter build ipa（去掉 --no-codesign）。
+      - name: Build app (no codesign)
+        run: |
+          flutter build ios --release --no-codesign \
+            --build-name=${{ steps.version.outputs.version_name }} \
+            --build-number=${{ steps.version.outputs.version_code }}
+
+      - name: Package IPA (no codesign)
+        run: |
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/*.app dist/Payload/
+          cd dist && zip -qr "NotePad-${{ steps.version.outputs.version_name }}.ipa" Payload
+          cd .. && rm -rf dist/Payload
+          ls -lh dist/
+
+      # - name: Import signing certificate
+      #   if: env.IOS_P12_BASE64 != ''
+      #   env:
+      #     IOS_P12_BASE64: ${{ secrets.IOS_P12_BASE64 }}
+      #     IOS_P12_PASSWORD: ${{ secrets.IOS_P12_PASSWORD }}
+      #   run: |
+      #     echo "$IOS_P12_BASE64" | base64 -d > signing-cert.p12
+      #     security create-keychain -p temp build.keychain
+      #     security default-keychain -s build.keychain
+      #     security unlock-keychain -p temp build.keychain
+      #     security import signing-cert.p12 -k build.keychain -P "$IOS_P12_PASSWORD" -T /usr/bin/codesign
+      #     security set-key-partition-list -S apple-tool:,apple: -s -k temp build.keychain
+
+      # - name: Install provisioning profile
+      #   if: env.IOS_P12_BASE64 != ''
+      #   env:
+      #     IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+      #   run: |
+      #     echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -d > profile.mobileprovision
+      #     mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+      #     cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$(uuidgen).mobileprovision"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: notepad-ipa
+          path: dist/*.ipa
+          if-no-files-found: error
