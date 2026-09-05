@@ -175,16 +175,24 @@ jobs:
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       # 默认 --no-codesign：产出无签名的 .ipa（可下载，用于自签/测试，无法直接上架）。
+      # 注意：flutter build ipa --no-codesign 会跳过 IPA 生成（skipping IPA），
+      # 因此先用 build ios 产出 .app，再手动封装成 Payload/xxx.ipa。
       # 如需正式签名分发，请在仓库 Settings -> Secrets 配置
       #   IOS_P12_BASE64 / IOS_P12_PASSWORD / IOS_PROVISIONING_PROFILE_BASE64
-      # 并解除下方签名步骤注释，去掉 --no-codesign。
-      - name: Build IPA (no codesign)
+      # 并解除下方签名步骤注释，改用 flutter build ipa（去掉 --no-codesign）。
+      - name: Build app (no codesign)
         run: |
-          flutter build ipa --release --no-codesign \
+          flutter build ios --release --no-codesign \
             --build-name=${{ steps.version.outputs.version_name }} \
             --build-number=${{ steps.version.outputs.version_code }}
-          mkdir -p dist
-          cp build/ios/ipa/*.ipa "dist/NotePad-${{ steps.version.outputs.version_name }}.ipa"
+
+      - name: Package IPA (no codesign)
+        run: |
+          mkdir -p dist/Payload
+          cp -r build/ios/iphoneos/*.app dist/Payload/
+          cd dist && zip -qr "NotePad-${{ steps.version.outputs.version_name }}.ipa" Payload
+          cd .. && rm -rf dist/Payload
+          ls -lh dist/
 
       # - name: Import signing certificate
       #   if: env.IOS_P12_BASE64 != ''
