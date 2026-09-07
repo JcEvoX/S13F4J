@@ -160,9 +160,20 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
             '${p.manifest.description}\nv${p.manifest.version} · ${p.manifest.capability}',
           ),
           isThreeLine: true,
-          trailing: Switch(
-            value: p.enabled,
-            onChanged: (v) => _manager.setEnabled(p.manifest.id, v),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (!p.manifest.builtin)
+                IconButton(
+                  tooltip: '卸载',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => _confirmUninstall(p),
+                ),
+              Switch(
+                value: p.enabled,
+                onChanged: (v) => _manager.setEnabled(p.manifest.id, v),
+              ),
+            ],
           ),
           onTap: p.enabled ? () => _launch(p) : null,
           enabled: p.enabled,
