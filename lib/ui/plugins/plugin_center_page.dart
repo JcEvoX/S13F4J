@@ -4,6 +4,7 @@ import '../../core/capability.dart';
 import '../../plugins/plugin_manager.dart';
 import '../../plugins/plugin_model.dart';
 import '../../plugins/plugin_store.dart';
+import '../../services/settings_service.dart';
 
 /// 插件中心：管理已安装插件（热插拔开关/卸载）与插件市场（从 GitHub 下载安装）。
 class PluginCenterPage extends StatefulWidget {
@@ -19,12 +20,20 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
   bool _loadingMarket = false;
   String? _marketError;
   List<MarketPlugin>? _market;
+  String _source = PluginStore.defaultSource;
 
   @override
   void initState() {
     super.initState();
     _manager.addListener(_onManagerChanged);
-    _loadMarket();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final settings = await SettingsService.instance;
+    if (!mounted) return;
+    setState(() => _source = settings.pluginSource);
+    await _loadMarket();
   }
 
   @override
@@ -37,13 +46,47 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _editSource() async {
+    final controller = TextEditingController(text: _source);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('插件源'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'GitHub 仓库（owner/repo）',
+            hintText: '如 JcEvoX/S13F4J-plugins-',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || result.isEmpty) return;
+    final settings = await SettingsService.instance;
+    await settings.setPluginSource(result);
+    if (!mounted) return;
+    setState(() => _source = result);
+    await _loadMarket();
+  }
+
   Future<void> _loadMarket() async {
     setState(() {
       _loadingMarket = true;
       _marketError = null;
     });
     try {
-      final list = await PluginStore.fetchMarket(PluginStore.defaultSource);
+      final list = await PluginStore.fetchMarket(_source);
       if (!mounted) return;
       setState(() {
         _market = list;
@@ -113,6 +156,13 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
       child: Scaffold(
         appBar: AppBar(
           title: const Text('插件中心'),
+          actions: [
+            IconButton(
+              tooltip: '插件源',
+              icon: const Icon(Icons.settings_ethernet),
+              onPressed: _editSource,
+            ),
+          ],
           bottom: const TabBar(
             tabs: [
               Tab(text: '已安装'),
@@ -208,25 +258,47 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
     if (market == null || market.isEmpty) {
       return const Center(child: Text('插件市场暂无可用插件'));
     }
-    return ListView.separated(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: market.length,
-      separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
-      itemBuilder: (context, i) {
-        final item = market[i];
-        final installed = _manager.byId(_idFromFileName(item.name)) != null;
-        return ListTile(
-          leading: const Icon(Icons.inventory_2_outlined, color: Colors.green),
-          title: Text(item.name),
-          subtitle: Text('${item.releaseName} · ${_sizeLabel(item.size)}'),
-          trailing: installed
-              ? const Text('已安装', style: TextStyle(color: Colors.green))
-              : FilledButton.tonal(
-                  onPressed: () => _install(item),
-                  child: const Text('安装'),
-                ),
-        );
-      },
+    return Column(
+      children: [
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.cloud_outlined, size: 20),
+          title: const Text('插件源', style: TextStyle(fontSize: 13)),
+          subtitle: Text(
+            _source,
+            style: const TextStyle(fontSize: 12),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          trailing: const Icon(Icons.edit_outlined, size: 18),
+          onTap: _editSource,
+        ),
+        const Divider(height: 1),
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: market.length,
+            separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
+            itemBuilder: (context, i) {
+              final item = market[i];
+              final installed =
+                  _manager.byId(_idFromFileName(item.name)) != null;
+              return ListTile(
+                leading: const Icon(Icons.inventory_2_outlined,
+                    color: Colors.green),
+                title: Text(item.name),
+                subtitle: Text('${item.releaseName} · ${_sizeLabel(item.size)}'),
+                trailing: installed
+                    ? const Text('已安装', style: TextStyle(color: Colors.green))
+                    : FilledButton.tonal(
+                        onPressed: () => _install(item),
+                        child: const Text('安装'),
+                      ),
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
