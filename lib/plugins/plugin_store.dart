@@ -29,7 +29,7 @@ class PluginStore {
   PluginStore._();
 
   /// 默认插件源：独立插件仓库。
-  static const defaultSource = 'JcEvoX/S13F4J-plugins';
+  static const defaultSource = 'JcEvoX/S13F4J-plugins-';
 
   /// 拉取插件仓库最近 releases 中的所有 `*.zip` 插件包。
   static Future<List<MarketPlugin>> fetchMarket(String repo) async {
