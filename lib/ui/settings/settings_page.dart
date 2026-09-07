@@ -7,6 +7,7 @@ import '../../theme/wallpapers.dart';
 import '../about/about_page.dart';
 import '../backuprestore/backup_restore_page.dart';
 import '../preview/markdown_preview_settings_page.dart';
+import '../plugins/plugin_center_page.dart';
 import '../recent/recent_page.dart';
 import '../statistics/statistics_page.dart';
 import '../theme/editor_font_page.dart';
@@ -135,6 +136,25 @@ class _SettingsPageState extends State<SettingsPage> {
                     subtitle: s.startPage == StartPage.home ? '文档列表' : '编辑器',
                     onTap: () => _pickStartPage(s),
                   ),
+                ]),
+                _section('插件'),
+                _group([
+                  _switchItem(
+                    icon: Icons.extension,
+                    title: '启用插件系统',
+                    value: s.enablePluginSystem,
+                    onChanged: (v) {
+                      s.setEnablePluginSystem(v);
+                      setState(() {});
+                    },
+                  ),
+                  if (s.enablePluginSystem)
+                    _item(
+                      icon: Icons.widgets_outlined,
+                      title: '插件中心',
+                      subtitle: '管理插件与插件市场',
+                      onTap: () => _push(const PluginCenterPage()),
+                    ),
                 ]),
                 _group([
                   _item(
