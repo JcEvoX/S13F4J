@@ -153,7 +153,7 @@ class SettingsService {
 
   /// 插件市场源（GitHub 插件仓库 owner/repo）。
   String get pluginSource =>
-      _prefs.getString(_kPluginSource) ?? 'JcEvoX/S13F4J-plugins-';
+      _prefs.getString(_kPluginSource) ?? 'JcEvoX/S13F4J-plugins';
 
   Future<void> setPluginSource(String v) => _prefs.setString(_kPluginSource, v);
 }

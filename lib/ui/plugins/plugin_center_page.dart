@@ -57,7 +57,7 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
           autofocus: true,
           decoration: const InputDecoration(
             labelText: 'GitHub 仓库（owner/repo）',
-            hintText: '如 JcEvoX/S13F4J-plugins-',
+            hintText: '如 JcEvoX/S13F4J-plugins',
           ),
         ),
         actions: [
@@ -281,8 +281,9 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
             separatorBuilder: (_, __) => const Divider(height: 1, indent: 72),
             itemBuilder: (context, i) {
               final item = market[i];
-              final installed =
-                  _manager.byId(_idFromFileName(item.name)) != null;
+              // 按下载地址精确判断：同名/同能力但不同源的插件不算已安装。
+              final installed = _manager.plugins
+                  .any((p) => p.downloadUrl == item.downloadUrl);
               return ListTile(
                 leading: const Icon(Icons.inventory_2_outlined,
                     color: Colors.green),
@@ -300,12 +301,6 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
         ),
       ],
     );
-  }
-
-  /// 从安装包文件名推导插件 id（去掉版本与扩展名）。
-  static String _idFromFileName(String name) {
-    final base = name.replaceAll(RegExp(r'\.zip$'), '');
-    return base.replaceAll(RegExp(r'[-_]?\d+\.\d+\.\d+.*$'), '');
   }
 
   static String _sizeLabel(int bytes) {
