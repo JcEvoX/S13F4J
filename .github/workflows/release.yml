@@ -8,15 +8,12 @@ name: Release
 #   ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
 # 并解除下方 release 签名步骤的注释。
 
-# 触发方式：
-#   1. 推送 v* 版本标签（如 v1.0.0）——发大版本
-#   2. 手动触发（Actions -> Release -> Run workflow，可指定分支）——发小版本/小优化，
-#      版本号自动基于 commit 计数递增，无需手动升大版本号。
+# 触发方式：仅推送 v* 版本标签（如 v1.0.0）触发，只构建并发布 tag 所在 commit。
+# 不做手动触发，避免发布分支上未打 tag 的代码。
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -247,10 +244,10 @@ jobs:
           retention-days: 30
 
       # Android job 已创建/更新同名 release，这里把 IPA 追加进该 release 资产。
-      # tag 触发时 github.ref_name 即版本 tag；workflow_dispatch 时用计算出的版本名。
+      # 仅 tag 触发，github.ref_name 即版本 tag。
       - name: Publish IPA to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event_name == 'push' && github.ref_name || steps.version.outputs.version_name }}
+          tag_name: ${{ github.ref_name }}
           files: dist/*.ipa
           draft: false
