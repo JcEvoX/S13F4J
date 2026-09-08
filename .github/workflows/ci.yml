@@ -121,16 +121,23 @@ jobs:
           cp build/app/outputs/flutter-apk/app-debug.apk \
             build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
 
-      - name: Upload debug APKs
+      - name: Upload debug APK (armeabi-v7a)
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk
-          path: |
-            build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
-            build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+          name: debug-apk-armeabi-v7a
+          path: build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
           if-no-files-found: error
           # debug 制品最多留存 7 天，避免 GB-Hour 存储配额快速耗尽。
+          retention-days: 7
+
+      - name: Upload debug APK (arm64-v8a)
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-apk-arm64-v8a
+          path: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
+          if-no-files-found: error
           retention-days: 7
 
   ios:
