@@ -1,0 +1,50 @@
+name: Cleanup old artifacts
+
+# 每日兜底清理：上传时已按类型设置留存期（debug 7 天 / release 30 天），
+# 此策略仅在异常中断或旧配置遗留时兜底，用与 retention-days 一致的阈值删除过期制品。
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  cleanup:
+    name: Delete expired artifacts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup expired artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const now = Date.now();
+            // 与 upload 的 retention-days 一致：release 30 天，其余（debug）7 天。
+            const isRelease = (name) => name.includes('release');
+            const cutoffMs = (name) =>
+              (isRelease(name) ? 30 : 7) * 24 * 60 * 60 * 1000;
+            let deleted = 0;
+            // 分页遍历该仓库全部制品。
+            for await (const response of github.paginate.iterator(
+              github.rest.actions.listArtifactsForRepo,
+              { owner, repo, per_page: 100 },
+            )) {
+              for (const artifact of response.data) {
+                if (artifact.expired) continue;
+                const cutoff = cutoffMs(artifact.name);
+                const age = now - new Date(artifact.created_at).getTime();
+                if (age > cutoff) {
+                  await github.rest.actions.deleteArtifact({
+                    owner,
+                    repo,
+                    artifact_id: artifact.id,
+                  });
+                  deleted++;
+                  console.log(`deleted ${artifact.name} (age ${Math.round(age / 3600000)}h)`);
+                }
+              }
+            }
+            console.log(`cleanup done, deleted ${deleted} artifact(s)`);

@@ -131,6 +131,24 @@ jobs:
           cp build/app/outputs/bundle/release/app-release.aab "dist/NotePad-${VER}.aab"
           ls -lh dist/
 
+      - name: Upload release APK (armeabi-v7a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-armeabi-v7a
+          path: dist/*-armeabi-v7a.apk
+          if-no-files-found: error
+          # release 制品留存 30 天（正式发布产物，保留期较长）。
+          retention-days: 30
+
+      - name: Upload release APK (arm64-v8a)
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk-arm64-v8a
+          path: dist/*-arm64-v8a.apk
+          if-no-files-found: error
+          # release 制品留存 30 天（正式发布产物，保留期较长）。
+          retention-days: 30
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -216,9 +234,11 @@ jobs:
       #     mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
       #     cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$(uuidgen).mobileprovision"
 
-      - name: Upload IPA
+      - name: Upload release IPA
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-ipa
+          name: release-ipa
           path: dist/*.ipa
           if-no-files-found: error
+          # release 制品留存 30 天（正式发布产物，保留期较长）。
+          retention-days: 30

@@ -31,6 +31,8 @@ class SettingsService {
   static const _kMathJax = 'mathjax';
   static const _kMermaid = 'mermaid';
   static const _kWordCount = 'pref_show_word_count';
+  static const _kEnablePluginSystem = 'pref_enable_plugin_system';
+  static const _kPluginSource = 'pref_plugin_source';
 
   static SettingsService? _instance;
 
@@ -141,4 +143,17 @@ class SettingsService {
   bool get showWordCount => _prefs.getBool(_kWordCount) ?? true;
 
   Future<void> setShowWordCount(bool v) => _prefs.setBool(_kWordCount, v);
+
+  /// 插件系统总开关。默认关闭：界面不显示插件入口；
+  /// 开启后在设置中显示「插件中心」，可热插拔插件。
+  bool get enablePluginSystem => _prefs.getBool(_kEnablePluginSystem) ?? false;
+
+  Future<void> setEnablePluginSystem(bool v) =>
+      _prefs.setBool(_kEnablePluginSystem, v);
+
+  /// 插件市场源（GitHub 插件仓库 owner/repo）。
+  String get pluginSource =>
+      _prefs.getString(_kPluginSource) ?? 'JcEvoX/S13F4J-plugins';
+
+  Future<void> setPluginSource(String v) => _prefs.setString(_kPluginSource, v);
 }

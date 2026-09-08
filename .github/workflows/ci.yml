@@ -1,12 +1,15 @@
 name: CI
 
 # 任意分支 push 或 PR 时触发：运行静态分析、单元测试并编译 debug 产物。
+# iOS 打包需要付费的 macos runner（受账户账单/消费上限影响），
+# 因此默认不在 push/PR 上运行，需在 Actions 页面手动触发整个工作流时才会执行。
 
 on:
   push:
     branches-ignore:
       - 'automation-schedule-permacache/**'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -122,20 +125,25 @@ jobs:
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-debug-armeabi-v7a
+          name: debug-apk-armeabi-v7a
           path: build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
           if-no-files-found: error
+          # debug 制品最多留存 7 天，避免 GB-Hour 存储配额快速耗尽。
+          retention-days: 7
 
       - name: Upload debug APK (arm64-v8a)
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-debug-arm64-v8a
+          name: debug-apk-arm64-v8a
           path: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
           if-no-files-found: error
+          retention-days: 7
 
   ios:
     name: Build iOS (debug, no codesign)
+    # 仅在手动触发时运行（macos runner 为付费资源）。
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -162,9 +170,10 @@ jobs:
           cd dist && zip -qr "NotePad-debug.ipa" Payload
           cd .. && rm -rf dist/Payload
 
-      - name: Upload IPA
+      - name: Upload debug IPA
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-ipa
+          name: debug-ipa
           path: dist/*.ipa
           if-no-files-found: error
+          retention-days: 7
