@@ -216,11 +216,11 @@ jobs:
       #     mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
       #     cp profile.mobileprovision "$HOME/Library/MobileDevice/Provisioning Profiles/$(uuidgen).mobileprovision"
 
-      - name: Upload IPA
+      - name: Upload release IPA
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-ipa
+          name: notepad-release-ipa
           path: dist/*.ipa
           if-no-files-found: error
-          # 制品保留 1 天（IPA 已随 GitHub Release 分发，此处仅作临时代理缓存）。
-          retention-days: 1
+          # release 制品留存 30 天（正式发布产物，保留期较长）。
+          retention-days: 30

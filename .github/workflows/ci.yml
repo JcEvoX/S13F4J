@@ -128,8 +128,8 @@ jobs:
           name: notepad-debug-armeabi-v7a
           path: build/app/outputs/flutter-apk/app-armeabi-v7a-debug.apk
           if-no-files-found: error
-          # 制品保留 1 天，避免 GB-Hour 存储配额快速耗尽（默认 90 天会锁死 CI）。
-          retention-days: 1
+          # debug 制品最多留存 7 天，避免 GB-Hour 存储配额快速耗尽。
+          retention-days: 7
 
       - name: Upload debug APK (arm64-v8a)
         if: matrix.platform == 'android'
@@ -138,7 +138,7 @@ jobs:
           name: notepad-debug-arm64-v8a
           path: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
 
   ios:
     name: Build iOS (debug, no codesign)
@@ -170,10 +170,10 @@ jobs:
           cd dist && zip -qr "NotePad-debug.ipa" Payload
           cd .. && rm -rf dist/Payload
 
-      - name: Upload IPA
+      - name: Upload debug IPA
         uses: actions/upload-artifact@v4
         with:
-          name: notepad-ipa
+          name: notepad-debug-ipa
           path: dist/*.ipa
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 7
