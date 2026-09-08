@@ -155,11 +155,14 @@ jobs:
           name: NotePad ${{ steps.version.outputs.version_name }}
           files: dist/*
           generate_release_notes: true
-          draft: true
+          # tag 推送即正式发布；如需人工确认可改回 draft: true。
+          draft: false
 
   ios:
     name: Build IPA
     runs-on: macos-latest
+    # 依赖 Android job 先创建/更新 release，避免两个 job 并发写同一 release。
+    needs: build
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -242,3 +245,12 @@ jobs:
           if-no-files-found: error
           # release 制品留存 30 天（正式发布产物，保留期较长）。
           retention-days: 30
+
+      # Android job 已创建/更新同名 release，这里把 IPA 追加进该 release 资产。
+      # tag 触发时 github.ref_name 即版本 tag；workflow_dispatch 时用计算出的版本名。
+      - name: Publish IPA to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'push' && github.ref_name || steps.version.outputs.version_name }}
+          files: dist/*.ipa
+          draft: false
