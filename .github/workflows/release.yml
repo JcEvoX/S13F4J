@@ -222,3 +222,5 @@ jobs:
           name: notepad-ipa
           path: dist/*.ipa
           if-no-files-found: error
+          # 制品保留 1 天（IPA 已随 GitHub Release 分发，此处仅作临时代理缓存）。
+          retention-days: 1
