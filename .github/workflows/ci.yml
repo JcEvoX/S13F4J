@@ -1,12 +1,15 @@
 name: CI
 
 # 任意分支 push 或 PR 时触发：运行静态分析、单元测试并编译 debug 产物。
+# iOS 打包需要付费的 macos runner（受账户账单/消费上限影响），
+# 因此默认不在 push/PR 上运行，需在 Actions 页面手动触发整个工作流时才会执行。
 
 on:
   push:
     branches-ignore:
       - 'automation-schedule-permacache/**'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -136,6 +139,8 @@ jobs:
 
   ios:
     name: Build iOS (debug, no codesign)
+    # 仅在手动触发时运行（macos runner 为付费资源）。
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - name: Checkout
