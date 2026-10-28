@@ -498,8 +498,8 @@ class _HomePageState extends State<HomePage> {
     controller.dispose();
     if (!mounted || title == null || title.trim().isEmpty) return;
     final provider = context.read<NoteProvider>();
+    // updateNode 内部已刷新当前层级，无需再次 refresh。
     await provider.updateNode(node.copyWith(title: title.trim()));
-    await provider.refresh();
   }
 
   /// 卡片副文本：文章为内容预览，文件夹显示为空。

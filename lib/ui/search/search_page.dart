@@ -137,15 +137,21 @@ class _SearchPageState extends State<SearchPage> {
                 ? Colors.white54
                 : Colors.grey.shade600,
           ),
-          onTap: () {
+          onTap: () async {
             if (node.isFolder) {
               context.read<NoteProvider>().openFolder(node);
               Navigator.pop(context);
             } else {
-              Navigator.push(
+              await Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
               );
+              // 编辑返回后按当前关键词重新搜索，保证结果与最新内容一致。
+              if (!mounted) return;
+              final keyword = _controller.text.trim();
+              if (keyword.isNotEmpty) {
+                context.read<NoteProvider>().search(keyword);
+              }
             }
           },
         );

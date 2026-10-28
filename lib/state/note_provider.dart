@@ -109,6 +109,18 @@ class NoteProvider extends ChangeNotifier {
     return _dao.allFolders();
   }
 
+  /// 生成唯一 id。
+  ///
+  /// 使用微秒时间戳 + 自增序号，避免同一毫秒内连续新建时 id 相同，
+  /// 导致后建的节点覆盖先建的节点（内容看起来「丢失」）。
+  static int _idCounter = 0;
+
+  static String _generateId() {
+    final micros = DateTime.now().microsecondsSinceEpoch;
+    final seq = (_idCounter++ % 1000).toString().padLeft(3, '0');
+    return '$micros$seq';
+  }
+
   /// 新建节点（文件或文件夹）。
   Future<NotePadNode> createNode({
     required bool isFolder,
@@ -118,7 +130,7 @@ class NoteProvider extends ChangeNotifier {
     debugPrint('[NoteProvider] createNode: isFolder=$isFolder, title=$title, parentId=$_currentParentId');
     final now = DateTime.now().millisecondsSinceEpoch;
     final node = NotePadNode(
-      id: now.toString(),
+      id: _generateId(),
       isFolder: isFolder,
       title: title,
       content: content,
@@ -134,14 +146,56 @@ class NoteProvider extends ChangeNotifier {
     return node;
   }
 
-  /// 更新节点内容（编辑时实时保存）。
+  /// 更新节点（标题、层级等整体更新）。
   Future<void> updateNode(NotePadNode updated) async {
     debugPrint('[NoteProvider] updateNode: id=${updated.id}, parentId=${updated.parentId}');
     final merged = updated.copyWith(
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     );
     await _dao.saveNode(merged);
+    _syncInMemory(merged);
     await refresh();
+  }
+
+  /// 保存文章正文（编辑器实时保存调用）。
+  ///
+  /// 与 [updateNode] 不同：这里只落库正文并就地更新内存中的节点，
+  /// 不整层重载列表，避免每次输入都重建当前文件夹列表与搜索/回收站缓存。
+  Future<void> updateContent(String id, String content) async {
+    final existing = await _dao.nodeById(id);
+    if (existing == null) {
+      debugPrint('[NoteProvider] updateContent 跳过：节点不存在 id=$id');
+      return;
+    }
+    if (existing.content == content) return;
+    final updated = existing.copyWith(
+      content: content,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    );
+    await _dao.saveNode(updated);
+    _syncInMemory(updated);
+    debugPrint('[NoteProvider] updateContent: id=$id, ${content.length} 字符');
+  }
+
+  /// 把更新后的节点同步到已加载的内存列表中，并通知 UI 刷新。
+  ///
+  /// 首页卡片、搜索结果、回收站都可能持有同一节点的旧快照，
+  /// 一并替换可避免「保存后其它页面仍是旧内容」的联动问题。
+  void _syncInMemory(NotePadNode updated) {
+    var changed = false;
+
+    void replaceIn(List<NotePadNode> list) {
+      final index = list.indexWhere((n) => n.id == updated.id);
+      if (index >= 0) {
+        list[index] = updated;
+        changed = true;
+      }
+    }
+
+    replaceIn(_nodes);
+    replaceIn(_searchResults);
+    replaceIn(_recycleNodes);
+    if (changed) notifyListeners();
   }
 
   // ---- 选中 / 多选 ----
@@ -206,6 +260,8 @@ class NoteProvider extends ChangeNotifier {
     debugPrint('[NoteProvider] restoreFromRecycle: ids=${targets.map((n) => n.id).toList()}');
     await _dao.restoreNodes(targets);
     await loadRecycleBin();
+    // 恢复的节点可能回到当前层级，刷新当前列表以免首页仍看不到。
+    await refresh();
     debugPrint('[NoteProvider] restoreFromRecycle 完成');
   }
 
