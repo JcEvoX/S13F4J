@@ -35,6 +35,7 @@ flowchart TB
         BackupUI["备份与恢复页"]
         PluginUI["插件中心"]
         MigrationUI["迁移页"]
+        FileUI["文件阅读 / 项目页"]
     end
 
     subgraph APP["应用层 · lib/state"]
@@ -63,10 +64,13 @@ flowchart TB
         NsBackup["NamespaceBackupCenter"]
         AppBackup["AppBackupCenter"]
         WebDAV["WebDavService"]
+        ExternalOpen["ExternalOpenService<br/>单文件临时会话"]
+        ProjectSvc["ProjectImporter<br/>项目导入 / 更新"]
     end
 
     subgraph CAP["能力层 · lib/core/capability + plugins"]
         NotesCap["notes 能力<br/>StorageCapability"]
+        FilesCap["files 能力<br/>每个项目一个实例"]
         Legacy["旧库 / 旧 JSON 导入器"]
         Git["git 能力（将来）"]
     end
@@ -92,6 +96,12 @@ flowchart TB
     NotesCap --> NsBackup
     Legacy --> NotesCap
     WebDAV --> AppBackup
+    FileUI --> ExternalOpen
+    FileUI --> ProjectSvc
+    ExternalOpen --> FilesCap
+    ProjectSvc --> FilesCap
+    FilesCap --> Registry
+    FilesCap --> NsBackup
 ```
 
 ### 2.1 依赖规则
@@ -118,6 +128,9 @@ flowchart TB
 | `NamespaceBackupCenter` | 单命名空间 zip 快照 / 恢复 | 容器格式固定；sha256 校验 |
 | `AppBackupCenter` | 整机包、逐命名空间恢复、journal | 不宣称跨命名空间原子 |
 | `PluginManager` | 安装、启停、卸载语义 | 卸载 = 停用；内置可停用 |
+| `ExternalOpenService` | 接收系统外部打开请求；解析 URI / 临时文件；管理只读会话 | 不写注册表、不写 tree；会话关闭即丢弃 |
+| `ProjectImporter` | 扫描源目录、预览、拷贝到 staging、注册项目命名空间 | 只拷贝，不改源目录；跳过符号链接；失败清理 staging |
+| `FilesCapability` | 文件阅读能力的 `StorageCapability` 实现 | 每个项目一个实例；`TrashPolicy = null`；备份按项目命名空间 |
 
 ---
 
@@ -143,7 +156,14 @@ flowchart TB
         NsIndex["namespaces/notes/index/<br/>派生索引"]
         NsBackup["namespaces/notes/backups/<br/>*.zip"]
         Logs["namespaces/notes/logs/"]
+        ProjectIndex["namespaces/files.&lt;projectId&gt;/index/"]
+        ProjectBackup["namespaces/files.&lt;projectId&gt;/backups/"]
         GlobalStaging["staging/"]
+    end
+
+    subgraph Projects["projectsRoot（与 vaultRoot 同级）<br/>iOS Documents/NotePadProjects · Android files/NotePadProjects"]
+        ProjMeta["&lt;projectId&gt;/.notepad/<br/>namespace.json · project.json"]
+        ProjData["&lt;projectId&gt;/文件与子目录<br/>保留源相对结构"]
     end
 
     subgraph Cache["cacheRoot"]
@@ -152,6 +172,7 @@ flowchart TB
 
     Vault -. "备份 / 恢复只搬运 nsRoot 内容" .-> NsBackup
     NsIndex -. "可删除重建" .-> Tree
+    Projects -. "每个项目独立命名空间<br/>不参与笔记快照" .-> ProjectBackup
 ```
 
 ### 3.2 角色与平台映射
@@ -159,16 +180,25 @@ flowchart TB
 | 角色 | iOS | Android | 说明 |
 |---|---|---|---|
 | `vaultRoot` | 沙盒 `Documents/Notepad` | 应用内部 `files/Notepad` | 用户数据根；随系统设备备份 |
+| `projectsRoot` | 沙盒 `Documents/NotePadProjects` | 应用内部 `files/NotePadProjects` | 文件阅读项目根；与笔记库同级隔离 |
 | `appDataRoot` | `Library/Application Support/Notepad` | path_provider 应用支持目录 | 索引、快照、日志、staging |
 | `cacheRoot` | `Library/Caches` | 应用缓存目录 | 可随时清理 |
 
 - `appDataRoot` 统一由 `getApplicationSupportDirectory()` 获取，不依赖平台特称。
-- `nsRoot` 本期等于 `vaultRoot`；未来外部命名空间记录绝对路径 / URI，并带可用性校验。
+- `nsRoot` 对 notes 等于 `vaultRoot`；对 `files.<projectId>` 等于 `projectsRoot/<projectId>`，在注册表中记录绝对路径。
 - `Caches` 不放任何用户意图数据。
 
 ### 3.3 固定保留名
 
 `.notepad`、`assets`、以 `.` 开头的名称均为系统保留，用户不可创建。
+
+### 3.4 项目根与笔记库隔离
+
+- 文件阅读项目放在 `projectsRoot/<projectId>/`，**不放在 `vaultRoot` 内**：notes 的 `nsRoot == vaultRoot`，若项目放进 vault 会被笔记列表扫描到，并被笔记快照重复打包。
+- `projectsRoot` 作为独立的 `SandboxRoot` 基目录；项目 `NamespaceHandle` 以 `<projectsRoot>/<projectId>` 为根，仍然只能使用相对路径，注册表里的绝对路径只用于定位基目录。
+- 每个项目根内有且仅有 `.notepad/namespace.json`、`.notepad/project.json`；不写 `tree.json`（只读浏览按文件名自然排序或索引顺序）。
+- 项目索引与快照放 `appDataRoot/namespaces/files.<projectId>/`，与 notes 平级隔离。
+- 项目根不可用时注册表 `state=missing`，不阻塞笔记命名空间启动。
 
 ---
 
@@ -237,6 +267,16 @@ flowchart TB
       "state": "active",
       "drivers": { "backup": true, "trash": true },
       "createdAt": 1761800000000
+    },
+    {
+      "id": "files.p-01",
+      "pluginId": "builtin.files",
+      "root": "/data/.../Documents/NotePadProjects/p-01",
+      "displayName": "flutter-app",
+      "schema": 1,
+      "state": "active",
+      "drivers": { "backup": true, "trash": false },
+      "createdAt": 1761800500000
     }
   ]
 }
@@ -244,9 +284,10 @@ flowchart TB
 
 | 字段 | 说明 |
 |---|---|
-| `root` | 空 = 根即 `vaultRoot`；外部根记录绝对路径 / URI |
+| `root` | 空 = 根即 `vaultRoot`；绝对路径 / URI = 外部根（文件阅读项目使用绝对路径） |
 | `state` | `active` / `disabled` / `missing` |
 | `drivers` | 该能力是否提供备份 / 回收站驱动；缺失则 UI 隐藏或警告 |
+| 多命名空间同插件 | 允许；`files.<projectId>` 均属 `builtin.files`，停用插件时统一置 `disabled` |
 
 生命周期：`register` → `resolve` → `deactivate(pluginId)` → `activate(pluginId)` → `forget(namespaceId)`。
 **卸载 = `deactivate`**，不 `forget`；`forget` 前必须 trash 为空 + 二次确认。
@@ -356,6 +397,55 @@ notes-20261031-120000.zip
 }
 ```
 
+### 4.8 project.json（文件阅读项目）
+
+```json
+{
+  "schema": 1,
+  "projectId": "p-01",
+  "displayName": "flutter-app",
+  "mode": "copy",
+  "source": {
+    "kind": "directory",
+    "displayPath": "/Download/flutter-app",
+    "sourceHash": "sha256:..."
+  },
+  "importedAt": 1761800500000,
+  "updatedAt": 1761800500000,
+  "fileCount": 120,
+  "totalBytes": 3456789,
+  "skipped": { "symlinks": 2, "unsupported": 0, "oversize": 0 }
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `mode` | 本期固定 `copy`；`reference` 预留给外部根（SAF / 安全书签） |
+| `source.displayPath` | 仅用于 UI 展示与用户识别；**不得**用于后续访问 |
+| `source.sourceHash` | 重复导入判定依据（规范化源路径 + 文件清单摘要），不匹配则视为新项目 |
+| `skipped` | 导入时跳过项计数，UI 汇总提示 |
+| 存储位置 | `<projectsRoot>/<projectId>/.notepad/project.json` |
+
+**单文件会话（不落盘）**
+
+外部打开的单文件不生成任何持久文件；会话对象只存在于内存，关闭即释放：
+
+```dart
+class OpenedFileSession {
+  final String displayName;
+  final String mime;
+  final int size;
+  final bool readOnly;      // 本期固定 true
+  Future<String> readText({int maxBytes = 5 * 1024 * 1024});
+  Future<void> saveAsNote(String title);
+  Future<void> dispose();
+}
+```
+
+- 不写注册表、不写 tree、不进入备份 / 回收站。
+- 内容可缓存在 `cacheRoot` 以支持滚动 / 重渲染，退出即失效。
+- `saveAsNote` 是唯一写入笔记库的动作，需用户显式触发。
+
 ---
 
 ## 5. 接口契约
@@ -393,6 +483,7 @@ abstract class NamespaceHandle {
 - `NamespaceHandle` 内部把 `rel` 拼到 `nsRoot`，能力代码无法突破命名空间边界。
 - `rename` 仅允许同根内；跨命名空间移动由上层「导出 + 导入」实现，禁止直接搬目录。
 - v2 只实现 `SandboxRoot`；`SafRoot` 预留（Android 外部树）。
+- `projectsRoot` 使用独立 `SandboxRoot` 实例，项目 handle 的根为 `<projectsRoot>/<projectId>`；`root` 字段只记录基目录定位信息，能力仍只拿 handle。
 
 ### 5.2 StorageCapability / 策略
 
@@ -484,6 +575,84 @@ abstract class NamespaceRegistry {
 ```
 
 `deactivate` 只改 `state` 与 `drivers`，不动数据；`forget` 移除记录并要求 trash 为空。
+
+### 5.5 ExternalOpenService（单文件外部调用）
+
+```dart
+abstract class ExternalOpenService {
+  /// 处理冷启动挂起的打开请求（必须在首帧前完成解析，避免丢请求）。
+  Future<void> init();
+
+  /// 热启动 / 分享进入的请求流。
+  Stream<OpenRequest> get requests;
+
+  /// 读取并生成只读会话；能力未启用时抛出 E-POLICY。
+  Future<OpenedFileSession> open(OpenRequest request);
+}
+
+class OpenRequest {
+  final Uri uri;              // content:// / file:// / 安全书签
+  final String? mime;
+  final OpenSource source;    // view / share / picker
+}
+```
+
+**约束**
+
+- 平台通道负责把 `content://` / 安全书签解析为可读字节流；Dart 侧不假设真实文件路径。
+- 打开前检查 `builtin.files` 是否启用；未启用时返回可恢复错误，由 UI 引导启用。
+- 不写注册表、不写 tree、不写笔记库；`saveAsNote` 是唯一落库动作。
+- 单文件会话持有临时句柄，`dispose` 必须释放安全书签 / 流；进程退出丢失会话是预期行为。
+
+### 5.6 ProjectImporter（项目维度导入）
+
+```dart
+abstract class ProjectImporter {
+  Future<ImportPreview> scan(ExternalDirectory source);
+  Future<ProjectSummary> importProject(ImportPreview preview, {String? displayName});
+  Future<ProjectSummary> updateProject(String projectId, ExternalDirectory source);
+  Future<void> removeProject(String projectId, {bool snapshotFirst = true});
+}
+
+class ImportPreview {
+  final String displayName;
+  final int fileCount;
+  final int totalBytes;
+  final Map<String, int> skipped;     // symlinks / oversize / unsupported
+  final String? duplicateProjectId;   // 同 sourceHash 命中时给出
+}
+```
+
+**流程约束**
+
+- `scan` 只读源目录，不复制；给出文件数、体积、跳过项与重复命中。
+- `importProject` 先复制到 `<projectsRoot>/.staging/<ts>/`，完成后 rename 为 `<projectsRoot>/<projectId>/`，再注册命名空间；失败清理 staging。
+- **目录名 = projectId，不可变**；显示名只存 `project.json`，改名不改目录，避免注册表与路径漂移。
+- `updateProject` 采用「staging 复制 → 可选快照旧目录 → 原子替换 → 重建索引」，与快照恢复同一套安全机制。
+- `removeProject` 若 `snapshotFirst` 且备份可用，先打快照再删除目录并 `forget`；否则二次确认后直接删除（不可恢复）。
+
+**文件阅读能力的策略**
+
+```dart
+class FilesProjectCapability implements StorageCapability {
+  final ProjectSummary project;
+
+  @override
+  String get namespaceId => 'files.${project.id}';
+
+  @override
+  String get pluginId => 'builtin.files';
+
+  @override
+  BackupPolicy get backupPolicy => FilesBackupPolicy(project); // 排除项为空 + 宿主固定排除项
+
+  @override
+  TrashPolicy? get trashPolicy => null; // 只读浏览，不提供文件级删除
+}
+```
+
+- 备份：每个项目独立快照，`quiesce` / `resume` 为空操作，`afterRestore` 重建项目索引。
+- 回收站：不提供；删除项目是命名空间级操作，走「快照 + 删除 + forget」而非文件搬运。
 
 ---
 
@@ -664,6 +833,62 @@ flowchart TB
 
 **回滚**：设置 `storage.backend=sqlite`，删除 `migration.json`，把 `.migrated-*` 改回 `.db`；`SqliteNotesRepository` 保留至下一个大版本。
 
+### 6.7 外部调用打开单个文件
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant OS as 系统 / 其他应用
+    participant App as 平台入口
+    participant EO as ExternalOpenService
+    participant Cap as files 能力
+    participant UI as 查看页
+    participant NR as NotesRepository
+
+    OS->>App: ACTION_VIEW / 分享 / 打开 URL
+    App->>EO: OpenRequest
+    EO->>Cap: 能力是否启用
+    alt 未启用
+        EO-->>UI: E-POLICY，提示启用能力
+    else 已启用
+        EO->>App: 解析 content URI / 安全书签
+        App-->>EO: 只读字节流
+        EO->>EO: 校验 MIME / 大小
+        EO-->>UI: OpenedFileSession
+        UI->>EO: readText
+        EO-->>UI: 正文
+        UI->>NR: saveAsNote(title) 仅用户显式触发
+    end
+    Note over EO: 不写注册表 / tree / 备份 / 回收站
+```
+
+- 冷启动与热启动都必须能接到请求：冷启动在首帧前读取 pending 请求，热启动走请求流。
+- 二进制、超大文件在会话创建阶段拒绝，避免整文件读入内存。
+- 关闭查看页即 `dispose`；不提供「最近打开外部文件」持久列表。
+
+### 6.8 按项目维度导入
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as 文件阅读页
+    participant PI as ProjectImporter
+    participant H as StorageRoot
+    participant NR as NamespaceRegistry
+    participant IDX as VaultIndex
+
+    UI->>PI: scan(source)
+    PI-->>UI: ImportPreview（文件数 / 体积 / 跳过项 / 重复命中）
+    UI->>PI: importProject(preview)
+    PI->>H: 复制到 projectsRoot/.staging/时间戳
+    PI->>H: rename 为 projectsRoot/projectId
+    PI->>H: 写 .notepad/namespace.json + project.json
+    PI->>NR: register files.projectId
+    PI->>IDX: 建立项目索引
+    PI-->>UI: ProjectSummary
+    Note over PI,H: 任一步失败：清理 staging，源目录与原项目不变
+```
+
 ---
 
 ## 7. 插件生命周期状态机
@@ -762,6 +987,9 @@ write(path):
 | `E-VALIDATE` | 输入校验失败 | reorder 少 id、schema 不匹配 | 拒绝并刷新数据 |
 | `E-POLICY` | 能力策略异常 | 钩子抛错 | 操作回滚，日志记录 |
 | `E-LEGACY` | 旧数据不可迁移 | 字段缺失、格式未知 | 保留原库，导出诊断信息 |
+| `E-EXTERNAL` | 外部文件不可读 / 权限失效 | content URI 失效、安全书签过期、文件被移动 | 提示重新选择 / 重新授权；保留已有笔记数据 |
+| `E-UNSUPPORTED` | 类型或体积不支持 | 二进制、超大文本 | 明确提示；不载入内存；不写库 |
+| `E-IMPORT` | 项目扫描 / 复制失败 | 源目录不可读、空间不足、staging 冲突 | 清理 staging，保留原项目；可重试 |
 
 错误对象统一携带：`code`、`message`（用户可读）、`detail`（日志）、`namespaceId`、`path`、`retryable`。
 
@@ -780,6 +1008,10 @@ write(path):
 | 凭据泄露 | WebDAV 凭据仅存本机偏好；日志脱敏；不进入备份包 |
 | 备份包泄露 | 备份默认本地；导出由用户主动选择；未来可加密码（不在本期） |
 | 隐私 | 无遥测；错误日志仅本机 |
+| 外部 URI 越权 | 只通过平台 API 读取授权 URI；不拼真实路径、不扫描外部目录；会话结束释放句柄 |
+| 项目导入路径污染 | 复制时逐条校验相对路径，拒绝 `..` / 绝对路径；符号链接跳过；`projectId` 由宿主生成，不用用户输入 |
+| 项目根越界 | 项目根只作为独立命名空间；`NamespaceHandle` 不允许跨入 `vaultRoot` 或其它项目 |
+| 外部文件内容注入 | 仅按纯文本渲染；Markdown 预览沿用现有 HTML / 脚本安全策略；不执行外部内容 |
 
 **补充**：恢复流程中所有写入只发生在 `staging` 与目标命名空间内；zip 条目必须落在 `data/` 前缀下，否则整包拒绝。
 
@@ -797,6 +1029,8 @@ write(path):
 | 单命名空间快照（100MB） | 进度可感知，不阻塞 UI | 后台 isolate / 分块 + 进度回调 |
 | 索引重建 | 可取消、可后台 | 全盘扫描仅在必要时触发 |
 | 内存 | 列表不驻留正文 | `NotePadNode.content` 默认空 |
+| 项目浏览（单层 1k 文件） | < 100ms | 只列当前目录；索引可选加速 |
+| 项目导入（100MB / 1k 文件） | 进度可感知，不阻塞 UI | 流式复制 + 分块 + 进度回调；跳过符号链接 |
 
 以上为设计目标值，需在 M1 基准脚本中校准并记录基线。
 
@@ -807,10 +1041,13 @@ write(path):
 | 事项 | iOS | Android |
 |---|---|---|
 | vault 位置 | 沙盒 `Documents/Notepad` | 内部 `files/Notepad` |
+| projects 位置 | 沙盒 `Documents/NotePadProjects` | 内部 `files/NotePadProjects` |
 | appData 位置 | `Library/Application Support` | 应用支持目录 |
 | 系统备份排除 | 对 `index/`、`backups/`、`logs/`、`staging/` 设 `NSURLIsExcludedFromBackupKey` | `fullBackupContent` / `dataExtractionRules` 排除同目录 |
 | 文件监听 | 不依赖 `FileSystemEntity.watch`；前台恢复 + 手动刷新对账 | 可用 watch 做实时刷新 |
-| 目录选择 | `file_selector` | SAF / 系统选择器 |
+| 目录选择 | `file_selector` / `UIDocumentPicker` | SAF / 系统选择器 |
+| 外部单文件入口 | `CFBundleDocumentTypes` + `LSSupportsOpeningDocumentsInPlace` + `application:openURL`；冷启动取 pending 请求 | `ACTION_VIEW` / `ACTION_SEND` intent-filter；`singleTask` + `onNewIntent` 处理热启动；`content://` 经 ContentResolver 读取 |
+| 安全书签 | `startAccessingSecurityScopedResource`，会话结束停止 | 不适用（用 URI 授权） |
 | 外部存储 | 不使用（本期） | SAF 预留（`SafRoot`，本期不实现） |
 
 ---
@@ -828,7 +1065,10 @@ write(path):
 | 备份 | 单命名空间快照 / 恢复、hash 失败、zip slip、zip bomb、中断重入 | 安全与一致性 |
 | 迁移 | fixture 嵌套 / 回收站 / 重名 / 空标题 / emoji；重复执行；磁盘满回滚 | 无损迁移 |
 | 崩溃注入 | tmp / staging 残留、journal 中断 | 启动恢复 |
-| UI | 重命名冲突、外部改动提示、按能力分组回收站、停用插件标签 | 体验闭环 |
+| 外部打开 | 冷 / 热启动、`content://`、安全书签失效、二进制 / 超大文件、能力停用 | 入口完整性与只读约束 |
+| 项目导入 | 多级目录、重复 `sourceHash`、中断、空间不足、符号链接 | 隔离、幂等与可恢复 |
+| 项目备份 | 单项目快照 / 恢复、移除前快照、项目停用后恢复 | 与 notes 命名空间互不干扰 |
+| UI | 重命名冲突、外部改动提示、按能力分组回收站、停用插件标签、项目缺失态 | 体验闭环 |
 
 ---
 
@@ -854,6 +1094,9 @@ lib/
 │  │  ├─ tree_store.dart
 │  │  ├─ filename_policy.dart
 │  │  └─ vault_index.dart
+│  ├─ files/
+│  │  ├─ project_store.dart              # project.json / 项目索引
+│  │  └─ project_capability.dart         # StorageCapability 实现
 │  └─ migration/
 │     ├─ legacy_sqlite_source.dart
 │     └─ legacy_json_importer.dart
@@ -862,6 +1105,8 @@ lib/
 │  ├─ trash_center.dart
 │  ├─ backup_center.dart                 # NamespaceBackupCenter + AppBackupCenter
 │  ├─ backup_service.dart                # 仅保留旧 JSON 导入
+│  ├─ external_open_service.dart         # 外部单文件会话 + 平台通道
+│  ├─ project_importer.dart              # 项目扫描 / 导入 / 更新 / 移除
 │  └─ webdav_service.dart                # 已含 uploadBytes，可复用
 ├─ plugins/
 │  └─ plugin_manager.dart                # 卸载语义改造（M5）
@@ -871,6 +1116,7 @@ lib/
    ├─ migration/                         # 迁移页（M2）
    ├─ backuprestore/                     # 备份中心（M4）
    ├─ recyclebin/                        # 聚合回收站（M4）
+   ├─ files/                             # 单文件查看 / 项目列表 / 项目浏览
    └─ plugins/                           # 插件中心语义（M5）
 ```
 
@@ -900,6 +1146,10 @@ lib/
 | 迁移丢数据 | 严重 | 旧库改名留档 + 抽样校验 + 整体回滚 |
 | 双实现期间回归 | 功能不稳 | backend 开关可切回 sqlite；契约测试双跑 |
 | 恢复中断 | 数据半替换 | staging + journal + 启动提示继续 / 回滚 |
+| 项目根误入笔记库 | 笔记列表 / 快照污染 | `projectsRoot` 与 `vaultRoot` 同级隔离；契约测试校验 notes 不可见项目根 |
+| 外部 URI 重启后失效 | 无法恢复上次查看 | 不持久化外部会话；需要长期保留时走「另存为笔记」或项目导入 |
+| 每项目一个命名空间致 registry 膨胀 | 启动变慢 | 注册表懒加载；项目数上限与归档策略（待定） |
+| 项目导入中断 | 半成品项目 | staging + rename + 启动清理；原项目不受影响 |
 
 ---
 
@@ -913,12 +1163,15 @@ lib/
 | 全文索引 | `VaultIndex` 增 FTS 适配层，索引仍为派生数据 |
 | 附件 UI | `assets/<noteId>/` 已就位，仅缺插入与引用解析 |
 | 加密备份 | 容器 manifest 增 `cipher` 字段，宿主加解密；需密钥管理方案 |
+| 项目引用模式 | `project.json.mode=reference` + `SafRoot` / iOS 安全书签；不复制源目录 |
+| 外部单文件编辑回写 | `OpenedFileSession.readOnly=false` + 显式授权 + mtime 冲突检测 |
 
 ---
 
 ## 17. 与改造方案的一致性说明
 
 - 本文所有路径、schema、契约均遵循 [refactor-plan.md](./refactor-plan.md) 的 D1–D12；实现层面的细节（journal 阶段、tmp 清理窗口、zip 限额等）为设计补充，不改变既有决策结论。
+- 文件阅读的两种入口（外部单文件 / 项目维度导入）与项目命名空间语义，按 2026-11-01 用户确认补充；`projectsRoot` 隔离与拷贝模式为本期默认方案，待确认项见 product.md Q5 / Q6。
 - 性能数值、保留策略数量、旧目录保留份数为**设计目标 / 待确认项**，已在 product.md 第 12 节列出。
 - WebDAV 的 `uploadBytes` 在当前代码中已存在（见第 14 节基线映射），M4 直接复用，无需新增接口。
 
