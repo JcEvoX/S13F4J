@@ -392,7 +392,7 @@ class VaultNotesRepository implements NotesRepository {
         if (record.isFolder &&
             (targetPath == record.path ||
                 _tree.isDescendantPath(record.path, targetPath))) {
-          throw NotesException('E-CYCLE', '不能把文件夹移动到自身或后代');
+          throw const NotesException('E-CYCLE', '不能把文件夹移动到自身或后代');
         }
         if (VaultTree.parentOf(record.path) == targetPath) {
           // 已在目标目录，保持原顺序，不参与移动。

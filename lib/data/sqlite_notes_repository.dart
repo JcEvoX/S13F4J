@@ -60,7 +60,7 @@ class SqliteNotesRepository implements NotesRepository {
     final now = DateTime.now().millisecondsSinceEpoch;
     final siblings = await _dao.childrenOf(parentId: parentId);
     final node = NotePadNode(
-      id: '${now}-${_idSeq++}',
+      id: '$now-${_idSeq++}',
       isFolder: isFolder,
       title: title,
       content: content,
