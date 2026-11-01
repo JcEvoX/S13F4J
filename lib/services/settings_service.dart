@@ -6,6 +6,9 @@ enum ThemeModeOption { system, light, dark }
 /// 启动后页面：文档列表 / 编辑器。
 enum StartPage { home, editor }
 
+/// 存储后端（v2 默认文件化 vault；可回退 sqlite）。
+enum StorageBackend { files, sqlite }
+
 /// 应用设置服务。
 ///
 /// 跨平台统一使用 shared_preferences 实现键值存储，
@@ -32,6 +35,7 @@ class SettingsService {
   static const _kWordCount = 'pref_show_word_count';
   static const _kEnablePluginSystem = 'pref_enable_plugin_system';
   static const _kPluginSource = 'pref_plugin_source';
+  static const _kStorageBackend = 'storage.backend';
 
   static SettingsService? _instance;
 
@@ -155,4 +159,16 @@ class SettingsService {
       _prefs.getString(_kPluginSource) ?? 'JcEvoX/S13F4J-plugins';
 
   Future<void> setPluginSource(String v) => _prefs.setString(_kPluginSource, v);
+
+  /// 存储后端：files（vault）/ sqlite（过渡回退）。
+  StorageBackend get storageBackend {
+    final value = _prefs.getString(_kStorageBackend) ?? 'files';
+    return StorageBackend.values.firstWhere(
+      (e) => e.name == value,
+      orElse: () => StorageBackend.files,
+    );
+  }
+
+  Future<void> setStorageBackend(StorageBackend backend) =>
+      _prefs.setString(_kStorageBackend, backend.name);
 }

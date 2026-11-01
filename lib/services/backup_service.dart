@@ -6,7 +6,7 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/note_dao.dart';
+import '../data/notes_repository.dart';
 import '../models/note.dart';
 import 'settings_service.dart';
 import 'webdav_service.dart';
@@ -106,8 +106,14 @@ class AutoBackupService {
 
   Timer? _timer;
   bool _running = false;
+  NotesRepository? _repository;
 
   bool get running => _running;
+
+  /// 由启动流程注入数据仓储。
+  void attach(NotesRepository repository) {
+    _repository = repository;
+  }
 
   /// 启动周期自动备份。
   void start({Duration interval = const Duration(minutes: 30)}) {
@@ -124,9 +130,14 @@ class AutoBackupService {
 
   /// 立即执行一次自动备份（本地 + WebDAV，按配置决定）。
   Future<void> run() async {
+    final repository = _repository;
+    if (repository == null) {
+      debugPrint('[AutoBackup] 跳过：数据仓储尚未注入');
+      return;
+    }
     debugPrint('[AutoBackup] run 开始, 节点读取中…');
     final settings = await SettingsService.instance;
-    final nodes = await NoteDao().allNodes();
+    final nodes = await repository.allNodes();
     debugPrint('[AutoBackup] 节点数=${nodes.length}, local=${settings.autoBackupLocal}, webdav=${settings.autoBackupToWebdav}');
 
     if (settings.autoBackupLocal) {

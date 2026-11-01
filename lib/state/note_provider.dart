@@ -1,16 +1,24 @@
 import 'package:flutter/foundation.dart';
 
-import '../data/note_dao.dart';
+import '../data/notes_repository.dart';
+import '../data/sqlite_notes_repository.dart';
 import '../models/note.dart';
 
 /// 全局数据状态管理。
 ///
-/// 持有当前层级列表、选中集合、回收站列表等状态，并对用户操作
-/// （新建、删除、恢复、排序、移动、搜索）进行分发的单一入口。
+/// 页面只依赖本 Provider；底层经 [NotesRepository] 屏蔽 sqlite / 文件实现。
 class NoteProvider extends ChangeNotifier {
-  NoteProvider({NoteDao? dao}) : _dao = dao ?? NoteDao();
+  NoteProvider({NotesRepository? repository})
+      : _repo = repository ?? SqliteNotesRepository();
 
-  final NoteDao _dao;
+  final NotesRepository _repo;
+  bool _ready = false;
+
+  Future<void> _ensureReady() async {
+    if (_ready) return;
+    await _repo.init();
+    _ready = true;
+  }
 
   /// 当前展示层级下的节点列表。
   List<NotePadNode> _nodes = [];
@@ -31,6 +39,10 @@ class NoteProvider extends ChangeNotifier {
   /// 回收站顶层节点列表。
   List<NotePadNode> _recycleNodes = [];
   List<NotePadNode> get recycleNodes => _recycleNodes;
+
+  /// 回收站聚合条目（带命名空间来源，供按能力分组使用）。
+  List<ScopedTrashEntry> _recycleEntries = [];
+  List<ScopedTrashEntry> get recycleEntries => _recycleEntries;
 
   /// 搜索结果缓存。
   List<NotePadNode> _searchResults = [];
@@ -55,9 +67,6 @@ class NoteProvider extends ChangeNotifier {
   String? get error => _error;
 
   /// 加载某个层级的内容。
-  ///
-  /// 使用 [try]/[finally] 确保加载完成后必定复位 loading 状态，
-  /// 避免首次开库/建表失败时界面永久停留在「加载中」。
   Future<void> loadFolder(String? parentId) async {
     debugPrint('[NoteProvider] loadFolder: 层级=$parentId');
     _currentParentId = parentId;
@@ -65,7 +74,8 @@ class NoteProvider extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
-      _nodes = await _dao.childrenOf(parentId: parentId);
+      await _ensureReady();
+      _nodes = await _repo.childrenOf(parentId);
       debugPrint('[NoteProvider] loadFolder 完成: 层级=$parentId, 节点=${_nodes.length}');
     } catch (e) {
       _error = '$e';
@@ -85,7 +95,8 @@ class NoteProvider extends ChangeNotifier {
   }
 
   Future<void> refresh() async {
-    _nodes = await _dao.childrenOf(parentId: _currentParentId);
+    await _ensureReady();
+    _nodes = await _repo.childrenOf(_currentParentId);
     debugPrint('[NoteProvider] refresh: 层级=$_currentParentId, 节点=${_nodes.length}');
     notifyListeners();
   }
@@ -106,7 +117,8 @@ class NoteProvider extends ChangeNotifier {
 
   /// 获取全部未回收文件夹（用于移动定位）。
   Future<List<NotePadNode>> allFolders() async {
-    return _dao.allFolders();
+    await _ensureReady();
+    return _repo.allFolders();
   }
 
   /// 新建节点（文件或文件夹）。
@@ -116,32 +128,31 @@ class NoteProvider extends ChangeNotifier {
     String content = '',
   }) async {
     debugPrint('[NoteProvider] createNode: isFolder=$isFolder, title=$title, parentId=$_currentParentId');
-    final now = DateTime.now().millisecondsSinceEpoch;
-    final node = NotePadNode(
-      id: now.toString(),
+    await _ensureReady();
+    final node = await _repo.createNode(
       isFolder: isFolder,
       title: title,
-      content: content,
       parentId: _currentParentId,
-      sortOrder: _nodes.length,
-      isRecycled: false,
-      createdAt: now,
-      updatedAt: now,
+      content: content,
     );
-    await _dao.saveNode(node);
     await refresh();
-    debugPrint('[NoteProvider] createNode 完成: id=${node.id}');
+    debugPrint('[NoteProvider] createNode 完成: id=${node.id}, title=${node.title}');
     return node;
   }
 
-  /// 更新节点内容（编辑时实时保存）。
-  Future<void> updateNode(NotePadNode updated) async {
-    debugPrint('[NoteProvider] updateNode: id=${updated.id}, parentId=${updated.parentId}');
-    final merged = updated.copyWith(
-      updatedAt: DateTime.now().millisecondsSinceEpoch,
-    );
-    await _dao.saveNode(merged);
+  /// 重命名节点（标题即文件名）。
+  Future<void> renameNode(String id, String newTitle) async {
+    debugPrint('[NoteProvider] renameNode: id=$id, title=$newTitle');
+    await _ensureReady();
+    await _repo.rename(id, newTitle);
     await refresh();
+  }
+
+  /// 保存文章正文。
+  Future<void> saveBody(String id, String body) async {
+    debugPrint('[NoteProvider] saveBody: id=$id, 长度=${body.length}');
+    await _ensureReady();
+    await _repo.writeBody(id, body);
   }
 
   // ---- 选中 / 多选 ----
@@ -189,7 +200,8 @@ class NoteProvider extends ChangeNotifier {
   /// 将选中（或给定）节点移入回收站。
   Future<void> deleteToRecycle(List<NotePadNode> targets) async {
     debugPrint('[NoteProvider] deleteToRecycle: ids=${targets.map((n) => n.id).toList()}');
-    await _dao.moveToRecycleBin(targets);
+    await _ensureReady();
+    await _repo.moveToTrash(targets.map((n) => n.id).toList());
     exitSelection();
     await refresh();
     await loadRecycleBin();
@@ -197,31 +209,32 @@ class NoteProvider extends ChangeNotifier {
   }
 
   Future<void> loadRecycleBin() async {
-    _recycleNodes = await _dao.recycleBin();
+    await _ensureReady();
+    _recycleEntries = await _repo.listTrash();
+    _recycleNodes = _recycleEntries.map((e) => e.toNode()).toList();
     debugPrint('[NoteProvider] loadRecycleBin: ${_recycleNodes.length} 项');
     notifyListeners();
   }
 
   Future<void> restoreFromRecycle(List<NotePadNode> targets) async {
     debugPrint('[NoteProvider] restoreFromRecycle: ids=${targets.map((n) => n.id).toList()}');
-    await _dao.restoreNodes(targets);
+    await _ensureReady();
+    await _repo.restore(targets.map((n) => n.id).toList());
     await loadRecycleBin();
     debugPrint('[NoteProvider] restoreFromRecycle 完成');
   }
 
   Future<void> purgeFromRecycle(List<NotePadNode> targets) async {
     debugPrint('[NoteProvider] purgeFromRecycle: ids=${targets.map((n) => n.id).toList()}');
-    await _dao.deletePermanently(targets);
+    await _ensureReady();
+    await _repo.purge(targets.map((n) => n.id).toList());
     await loadRecycleBin();
     debugPrint('[NoteProvider] purgeFromRecycle 完成');
   }
 
   // ---- 排序 / 移动 ----
 
-  /// 拖拽重排：更新子节点的 sort_order 并批量落库。
-  ///
-  /// 注意：新版 [ReorderableListView.onReorderItem] 的 `newIndex` 已自动
-  /// 按「移除 oldIndex 项」调整过，这里直接 removeAt + insert 即可。
+  /// 拖拽重排。
   Future<void> reorder(int oldIndex, int newIndex) async {
     debugPrint('[NoteProvider] reorder: $oldIndex -> $newIndex');
     final updated = List<NotePadNode>.from(_nodes);
@@ -232,7 +245,11 @@ class NoteProvider extends ChangeNotifier {
     }
     _nodes = updated;
     notifyListeners();
-    await _dao.saveNodes(updated);
+    await _ensureReady();
+    await _repo.reorder(
+      _currentParentId,
+      updated.map((n) => n.id).toList(),
+    );
     debugPrint('[NoteProvider] reorder 完成');
   }
 
@@ -240,46 +257,72 @@ class NoteProvider extends ChangeNotifier {
   Future<void> moveSelectedTo(String? targetParentId) async {
     final ids = selectedNodes.map((n) => n.id).toList();
     debugPrint('[NoteProvider] moveSelectedTo: ids=$ids, 目标=$targetParentId');
-    await _dao.moveTo(ids, targetParentId);
+    await _ensureReady();
+    await _repo.move(ids, targetParentId);
     exitSelection();
     await refresh();
     debugPrint('[NoteProvider] moveSelectedTo 完成，当前父节点=$_currentParentId');
   }
 
-  // ---- 搜索 ----
+  // ---- 搜索 / 最近 / 统计 ----
 
   Future<void> search(String keyword) async {
     debugPrint('[NoteProvider] search: "$keyword"');
+    await _ensureReady();
     if (keyword.trim().isEmpty) {
       _searchResults = [];
     } else {
-      _searchResults = await _dao.search(keyword.trim());
+      _searchResults = await _repo.search(keyword.trim());
     }
     debugPrint('[NoteProvider] search 结果: ${_searchResults.length} 条');
     notifyListeners();
   }
 
-  Future<NotePadNode?> nodeById(String id) => _dao.nodeById(id);
+  Future<NotePadNode?> nodeById(String id) async {
+    await _ensureReady();
+    return _repo.nodeById(id);
+  }
+
+  Future<List<NotePadNode>> recent({int limit = 50}) async {
+    await _ensureReady();
+    return _repo.recent(limit: limit);
+  }
+
+  Future<NoteStatistics> statistics() async {
+    await _ensureReady();
+    return _repo.statistics();
+  }
+
+  /// 全部节点（含回收站），用于旧 JSON 备份。
+  Future<List<NotePadNode>> allNodes() async {
+    await _ensureReady();
+    return _repo.allNodes();
+  }
+
+  /// 旧 JSON 备份恢复（覆盖当前数据）。
+  Future<void> replaceAll(List<NotePadNode> nodes) async {
+    await _ensureReady();
+    await _repo.replaceAll(nodes);
+    await refresh();
+    await loadRecycleBin();
+  }
 
   /// 定位到指定节点：沿父链向上逐层进入，直到其所在层级成为当前列表。
-  ///
-  /// 返回节点在当前列表中的下标；节点不存在、已回收或不在任何可见层级时返回 null。
   Future<int?> navigateToNode(String nodeId) async {
     debugPrint('[NoteProvider] navigateToNode: $nodeId');
-    final node = await _dao.nodeById(nodeId);
+    await _ensureReady();
+    final node = await _repo.nodeById(nodeId);
     if (node == null || node.isRecycled) {
       debugPrint('[NoteProvider] navigateToNode 失败：节点不存在或已回收');
       return null;
     }
-    // 从节点所在层向上收集祖先文件夹 id（由内到外）。
     final ancestors = <String?>[];
     String? parent = node.parentId;
     while (parent != null) {
       ancestors.add(parent);
-      final p = await _dao.nodeById(parent);
+      final p = await _repo.nodeById(parent);
       parent = p?.parentId;
     }
-    // 由外到内逐层进入，使当前列表最终为节点所在层。
     for (final folderId in ancestors.reversed) {
       await loadFolder(folderId);
     }

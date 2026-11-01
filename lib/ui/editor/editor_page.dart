@@ -109,9 +109,7 @@ class _EditorPageState extends State<EditorPage> {
     if (node == null || !_dirty || !mounted) return;
     final len = _controller.text.length;
     debugPrint('[Editor] 保存 nodeId=${node.id}, 内容 $len 字符');
-    await context.read<NoteProvider>().updateNode(
-          node.copyWith(content: _controller.text),
-        );
+    await context.read<NoteProvider>().saveBody(node.id, _controller.text);
     _dirty = false;
     debugPrint('[Editor] 保存完成');
   }

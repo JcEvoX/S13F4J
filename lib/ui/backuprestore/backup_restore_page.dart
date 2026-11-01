@@ -2,7 +2,6 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../data/note_dao.dart';
 import '../../models/note.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
@@ -171,7 +170,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
         _toast('请先选择备份文件夹');
         return;
       }
-      final nodes = await NoteDao().allNodes();
+      final nodes = await context.read<NoteProvider>().allNodes();
       final name = await BackupService.backupToDirectory(dir, nodes);
       debugPrint('[BackupRestore] 备份到本地完成: $name');
       _toast(name == null ? '备份已取消' : '备份成功：$name');
@@ -229,11 +228,8 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     setState(() => _busy = true);
     debugPrint('[BackupRestore] 确认恢复: ${file.name}, 节点=${nodes.length}');
     try {
-      final dao = NoteDao();
-      await dao.replaceAll(nodes);
+      await context.read<NoteProvider>().replaceAll(nodes);
       if (!mounted) return;
-      await context.read<NoteProvider>().refresh();
-      await context.read<NoteProvider>().loadRecycleBin();
       debugPrint('[BackupRestore] 恢复完成');
       _toast('恢复成功');
     } catch (e) {

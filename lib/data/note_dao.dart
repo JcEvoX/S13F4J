@@ -306,29 +306,3 @@ class NoteDao {
     debugPrint('[NoteDao] replaceAll 完成');
   }
 }
-
-/// 统计结果。
-class NoteStatistics {
-  const NoteStatistics({
-    required this.folders,
-    required this.articles,
-    required this.words,
-    required this.recycled,
-    required this.lastEditedAt,
-  });
-
-  /// 文件夹数量。
-  final int folders;
-
-  /// 文章数量。
-  final int articles;
-
-  /// 总字数。
-  final int words;
-
-  /// 回收站节点数量。
-  final int recycled;
-
-  /// 最近编辑时间（毫秒，0 表示无数据）。
-  final int lastEditedAt;
-}

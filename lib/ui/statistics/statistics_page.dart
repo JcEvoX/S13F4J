@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
-import '../../data/note_dao.dart';
+import '../../models/note.dart';
+import '../../state/note_provider.dart';
 
 /// 统计页。
 ///
@@ -20,12 +22,12 @@ class _StatisticsPageState extends State<StatisticsPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
     debugPrint('[Statistics] 加载统计');
-    final stat = await NoteDao().statistics();
+    final stat = await context.read<NoteProvider>().statistics();
     if (!mounted) return;
     setState(() => _stat = stat);
     debugPrint('[Statistics] 加载完成: 文章=${stat.articles}, 文件夹=${stat.folders}, 字数=${stat.words}, 回收站=${stat.recycled}');

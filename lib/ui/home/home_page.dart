@@ -498,8 +498,7 @@ class _HomePageState extends State<HomePage> {
     controller.dispose();
     if (!mounted || title == null || title.trim().isEmpty) return;
     final provider = context.read<NoteProvider>();
-    await provider.updateNode(node.copyWith(title: title.trim()));
-    await provider.refresh();
+    await provider.renameNode(node.id, title.trim());
   }
 
   /// 卡片副文本：文章为内容预览，文件夹显示为空。
