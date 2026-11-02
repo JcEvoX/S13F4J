@@ -71,6 +71,7 @@ dependencies:
 
   # 插件系统：插件包解压 + 系统文件选择器（SAF）
   archive: ^3.6.1
+  crypto: ^3.0.6
   file_picker: ^8.0.5
 
 dev_dependencies:

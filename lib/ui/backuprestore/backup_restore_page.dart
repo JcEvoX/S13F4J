@@ -7,6 +7,7 @@ import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import '../../state/note_provider.dart';
 import '../webdav/webdav_page.dart';
+import 'namespace_backup_page.dart';
 
 /// 备份和恢复页。
 ///
@@ -86,8 +87,18 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 ),
                 const Divider(),
                 _actionTile(
+                  icon: Icons.inventory_2_outlined,
+                  title: '备份中心（按命名空间）',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NamespaceBackupPage(),
+                    ),
+                  ),
+                ),
+                _actionTile(
                   icon: Icons.save_alt,
-                  title: '备份到本地',
+                  title: '导出旧格式 JSON',
                   onTap: () => _backupToLocal(s),
                 ),
                 _actionTile(
@@ -100,7 +111,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 ),
                 _actionTile(
                   icon: Icons.restore,
-                  title: '恢复备份',
+                  title: '导入旧 JSON 备份',
                   onTap: () => _restore(),
                 ),
                 if (_busy)
