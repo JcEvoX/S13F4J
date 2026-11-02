@@ -108,11 +108,86 @@ class BackupCenter {
         NamespaceSource(
           id: item.id,
           displayName: item.displayName.isEmpty ? item.id : item.displayName,
-          rootPath: item.root.isEmpty
-              ? paths.vaultRoot
-              : p.join(paths.vaultRoot, item.root),
+          rootPath: _resolveRoot(paths, item.root),
         ),
     ];
+  }
+
+  /// 命名空间 root：空 = vaultRoot；绝对路径 = 外部根（文件阅读项目）。
+  static String _resolveRoot(StoragePaths paths, String root) {
+    if (root.isEmpty) return paths.vaultRoot;
+    if (p.isAbsolute(root)) return root;
+    return p.join(paths.vaultRoot, root);
+  }
+
+  /// 恢复中断检测：staging 中残留的 `restore-*` / `prev-*` 目录。
+  Future<List<String>> pendingStaging() async {
+    final paths = await _ensurePaths();
+    final dir = Directory(p.join(paths.appDataRoot, _stagingDir));
+    if (!await dir.exists()) return const [];
+    final names = <String>[];
+    await for (final entity in dir.list()) {
+      final name = p.basename(entity.path);
+      if (name.startsWith('restore-') || name.startsWith('prev-')) {
+        names.add(name);
+      }
+    }
+    names.sort();
+    return names;
+  }
+
+  /// 清理残留 staging（恢复中断后由用户确认清理）。
+  Future<void> clearPendingStaging() async {
+    final paths = await _ensurePaths();
+    final dir = Directory(p.join(paths.appDataRoot, _stagingDir));
+    if (!await dir.exists()) return;
+    final entities = await dir.list().toList();
+    for (final entity in entities) {
+      final name = p.basename(entity.path);
+      if (name.startsWith('restore-') || name.startsWith('prev-')) {
+        try {
+          await entity.delete(recursive: true);
+        } catch (_) {
+          // 尽力清理。
+        }
+      }
+    }
+    debugPrint('[BackupCenter] 已清理残留 staging');
+  }
+
+  /// 读取整机快照内的命名空间清单（用于按命名空间逐个恢复）。
+  Future<List<NamespaceSource>> namespacesInSnapshot(
+    BackupSnapshot snapshot,
+  ) async {
+    final paths = await _ensurePaths();
+    final archive = ZipDecoder().decodeBytes(
+      await File(snapshot.path).readAsBytes(),
+    );
+    final manifestFile =
+        archive.files.where((f) => f.name == manifestName).firstOrNull;
+    if (manifestFile == null) return const [];
+    final manifest = jsonDecode(utf8.decode(manifestFile.content as List<int>));
+    final list = (manifest is Map ? manifest['namespaces'] : null) as List?;
+    if (list == null) return const [];
+    final registered = await namespaceSources();
+    final byId = {for (final item in registered) item.id: item};
+    final result = <NamespaceSource>[];
+    for (final item in list.cast<Map>()) {
+      final id = item['id'] as String? ?? '';
+      if (id.isEmpty) continue;
+      final root = byId[id]?.rootPath;
+      result.add(
+        NamespaceSource(
+          id: id,
+          displayName: (item['displayName'] as String?) ?? id,
+          rootPath: root ??
+              (id == 'notes'
+                  ? paths.vaultRoot
+                  : p.join(paths.projectsRoot, id.replaceFirst('files.', ''))),
+        ),
+      );
+    }
+    return result;
   }
 
   /// 命名空间目录占用字节数。

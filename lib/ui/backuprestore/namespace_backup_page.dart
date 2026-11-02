@@ -17,6 +17,7 @@ class _NamespaceBackupPageState extends State<NamespaceBackupPage> {
   final Map<String, List<BackupSnapshot>> _snapshots = {};
   final Map<String, int> _usage = {};
   List<BackupSnapshot> _appSnapshots = const [];
+  List<String> _pendingStaging = const [];
   bool _busy = false;
 
   @override
@@ -37,10 +38,12 @@ class _NamespaceBackupPageState extends State<NamespaceBackupPage> {
       namespaceId: 'all',
       appWide: true,
     );
+    final pending = await center.pendingStaging();
     if (!mounted) return;
     setState(() {
       _sources = sources;
       _appSnapshots = appSnapshots;
+      _pendingStaging = pending;
     });
   }
 
@@ -56,6 +59,7 @@ class _NamespaceBackupPageState extends State<NamespaceBackupPage> {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: [
+                  if (_pendingStaging.isNotEmpty) _buildPendingBanner(),
                   _sectionTitle('命名空间'),
                   for (final source in sources) _buildNamespaceCard(source),
                   const SizedBox(height: 20),
@@ -171,7 +175,7 @@ class _NamespaceBackupPageState extends State<NamespaceBackupPage> {
               for (final snapshot in _appSnapshots)
                 _snapshotTile(
                   snapshot,
-                  onRestore: null,
+                  onRestore: () => _restoreApp(snapshot),
                   onDelete: () => _delete(snapshot),
                 ),
             ],
@@ -217,6 +221,178 @@ class _NamespaceBackupPageState extends State<NamespaceBackupPage> {
               size: 20,
               color: Theme.of(context).colorScheme.error,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPendingBanner() {
+    return Card(
+      elevation: 0,
+      color: Theme.of(context).colorScheme.errorContainer,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.warning_amber_outlined,
+                  size: 20,
+                  color: Theme.of(context).colorScheme.error,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    '检测到上次恢复中断的残留',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _busy ? null : _clearPendingStaging,
+                  child: const Text('清理'),
+                ),
+              ],
+            ),
+            Text(
+              '${_pendingStaging.length} 个 staging 目录未被清理。'
+              '现有数据未被自动覆盖，确认后可直接清理。',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _clearPendingStaging() async {
+    setState(() => _busy = true);
+    try {
+      await BackupCenter.instance.clearPendingStaging();
+      _toast('已清理残留 staging');
+      await _load();
+    } catch (e) {
+      _toast('清理失败：$e');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _restoreApp(BackupSnapshot snapshot) async {
+    final sources =
+        await BackupCenter.instance.namespacesInSnapshot(snapshot);
+    if (!mounted) return;
+    if (sources.isEmpty) {
+      _toast('该快照内没有可恢复的命名空间');
+      return;
+    }
+    final target = await showDialog<String>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('整机恢复'),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+            child: Text(
+              '按命名空间逐个恢复，不承诺全局原子。'
+              '失败项会单独报告，可重试。',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, '__all__'),
+            child: const Text('全部恢复（逐个执行）'),
+          ),
+          for (final source in sources)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, source.id),
+              child: Text(source.displayName),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('取消'),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (target == null || !mounted) return;
+
+    final selected =
+        target == '__all__'
+            ? sources
+            : sources.where((s) => s.id == target).toList();
+    final ok = await _confirmRestore(
+      title: '恢复整机快照',
+      message: '将用 ${snapshot.timeLabel} 的快照覆盖以下命名空间：\n'
+          '${selected.map((s) => '· ${s.displayName}').join('\n')}\n\n'
+          '旧数据会先移入 staging，单个命名空间失败时自动回滚；'
+          '此操作不可撤销。',
+    );
+    if (ok != true || !mounted) return;
+
+    setState(() => _busy = true);
+    final results = <String>[];
+    for (final source in selected) {
+      try {
+        await BackupCenter.instance.restoreNamespace(
+          snapshot,
+          targetRoot: source.rootPath,
+          namespaceId: source.id,
+        );
+        results.add('${source.displayName}：已恢复');
+      } catch (e) {
+        results.add('${source.displayName}：失败（$e）');
+      }
+    }
+    if (!mounted) return;
+    setState(() => _busy = false);
+    try {
+      await context.read<NoteProvider>().reloadFromDisk();
+    } catch (_) {
+      // 非笔记命名空间恢复失败不影响结果展示。
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('整机恢复结果'),
+        content: SingleChildScrollView(
+          child: Text(results.join('\n\n')),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('知道了'),
+          ),
+        ],
+      ),
+    );
+    await _load();
+  }
+
+  Future<bool?> _confirmRestore({
+    required String title,
+    required String message,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('恢复'),
           ),
         ],
       ),
