@@ -64,8 +64,8 @@ flowchart TB
         NsBackup["NamespaceBackupCenter"]
         AppBackup["AppBackupCenter"]
         WebDAV["WebDavService"]
-        ExternalOpen["ExternalOpenService<br/>单文件临时会话"]
-        ProjectSvc["ProjectImporter<br/>项目导入 / 更新"]
+        ExternalOpen["ExternalOpenService<br/>单文件临时会话（待排期）"]
+        ProjectSvc["ProjectStore<br/>项目导入 / 更新"]
     end
 
     subgraph CAP["能力层 · lib/core/capability + plugins"]
@@ -128,8 +128,8 @@ flowchart TB
 | `NamespaceBackupCenter` | 单命名空间 zip 快照 / 恢复 | 容器格式固定；sha256 校验 |
 | `AppBackupCenter` | 整机包、逐命名空间恢复、journal | 不宣称跨命名空间原子 |
 | `PluginManager` | 安装、启停、卸载语义 | 卸载 = 停用；内置可停用 |
-| `ExternalOpenService` | 接收系统外部打开请求；解析 URI / 临时文件；管理只读会话 | 不写注册表、不写 tree；会话关闭即丢弃 |
-| `ProjectImporter` | 扫描源目录、预览、拷贝到 staging、注册项目命名空间 | 只拷贝，不改源目录；跳过符号链接；失败清理 staging |
+| `ExternalOpenService` | 接收系统外部打开请求；解析 URI / 临时文件；管理只读会话 | 待排期；当前仅支持应用内文件选择器 |
+| `ProjectStore` | 扫描源目录、预览、拷贝到 staging、注册项目命名空间 | 只拷贝，不改源目录；跳过符号链接；失败清理 staging |
 | `FilesCapability` | 文件阅读能力的 `StorageCapability` 实现 | 每个项目一个实例；`TrashPolicy = null`；备份按项目命名空间 |
 
 ---
@@ -578,6 +578,9 @@ abstract class NamespaceRegistry {
 
 ### 5.5 ExternalOpenService（单文件外部调用）
 
+> 状态：待排期。当前实现只覆盖应用内文件选择器（`ProjectStore.readExternalFile`），
+> 系统 `ACTION_VIEW` / `ACTION_SEND`、`content://` 与 iOS 安全书签尚未接入。
+
 ```dart
 abstract class ExternalOpenService {
   /// 处理冷启动挂起的打开请求（必须在首帧前完成解析，避免丢请求）。
@@ -604,7 +607,9 @@ class OpenRequest {
 - 不写注册表、不写 tree、不写笔记库；`saveAsNote` 是唯一落库动作。
 - 单文件会话持有临时句柄，`dispose` 必须释放安全书签 / 流；进程退出丢失会话是预期行为。
 
-### 5.6 ProjectImporter（项目维度导入）
+### 5.6 ProjectStore（项目维度导入）
+
+> 实现位于 `lib/services/project_store.dart`，本期为拷贝模式（源目录不变）。
 
 ```dart
 abstract class ProjectImporter {
