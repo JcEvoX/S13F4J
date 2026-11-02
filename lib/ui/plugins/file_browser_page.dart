@@ -116,17 +116,17 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
     }
   }
 
-  Future<void> _updateProject(FileProject project) async {
+  Future<void> _updateProject(FileProject project, {bool relocate = false}) async {
     final source = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择项目的新来源目录',
+      dialogTitle: relocate ? '选择项目的新位置' : '选择项目的新来源目录',
     );
     if (source == null || source.isEmpty || !mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('更新项目'),
+        title: Text(relocate ? '重新定位项目' : '更新项目'),
         content: Text(
-          '将用 $source 的内容覆盖「${project.displayName}」。\n'
+          '将用 $source 的内容${relocate ? '重建' : '覆盖'}「${project.displayName}」。\n'
           '项目 id 与命名空间保持不变，旧内容会被替换。',
         ),
         actions: [
@@ -136,7 +136,7 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('更新'),
+            child: Text(relocate ? '重新定位' : '更新'),
           ),
         ],
       ),
@@ -146,10 +146,10 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
     try {
       await ProjectStore.instance.updateProject(project.id, source);
       if (!mounted) return;
-      _toast('已更新项目「${project.displayName}」');
+      _toast(relocate ? '已重新定位项目「${project.displayName}」' : '已更新项目「${project.displayName}」');
       await _load();
     } catch (e) {
-      _toast('更新失败：$e');
+      _toast('${relocate ? '重新定位' : '更新'}失败：$e');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -364,11 +364,23 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
               PopupMenuButton<String>(
                 onSelected: (value) {
                   if (value == 'update') _updateProject(project);
+                  if (value == 'relocate') {
+                    _updateProject(project, relocate: true);
+                  }
                   if (value == 'remove') _removeProject(project);
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'update', child: Text('更新项目')),
-                  PopupMenuItem(value: 'remove', child: Text('移除项目')),
+                itemBuilder: (_) => [
+                  if (project.missing)
+                    const PopupMenuItem(
+                      value: 'relocate',
+                      child: Text('重新定位'),
+                    )
+                  else
+                    const PopupMenuItem(
+                      value: 'update',
+                      child: Text('更新项目'),
+                    ),
+                  const PopupMenuItem(value: 'remove', child: Text('移除项目')),
                 ],
               ),
             ],
@@ -398,11 +410,11 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.sync_outlined),
-              title: const Text('更新项目'),
+              leading: Icon(project.missing ? Icons.folder_open : Icons.sync_outlined),
+              title: Text(project.missing ? '重新定位' : '更新项目'),
               onTap: () {
                 Navigator.pop(ctx);
-                _updateProject(project);
+                _updateProject(project, relocate: project.missing);
               },
             ),
             ListTile(

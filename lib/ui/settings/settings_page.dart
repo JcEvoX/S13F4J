@@ -10,6 +10,7 @@ import '../preview/markdown_preview_settings_page.dart';
 import '../plugins/plugin_center_page.dart';
 import '../recent/recent_page.dart';
 import '../statistics/statistics_page.dart';
+import 'data_health_page.dart';
 import '../theme/editor_font_page.dart';
 import '../theme/wallpaper_page.dart';
 import '../webdav/webdav_page.dart';
@@ -102,6 +103,12 @@ class _SettingsPageState extends State<SettingsPage> {
                         ? '文件（Vault）'
                         : 'SQLite（兼容模式）',
                     onTap: () => _pickStorageBackend(s),
+                  ),
+                  _item(
+                    icon: Icons.health_and_safety_outlined,
+                    title: '数据占用与健康',
+                    subtitle: '命名空间占用、快照、恢复残留',
+                    onTap: () => _push(const DataHealthPage()),
                   ),
                 ]),
                 _section('编辑'),

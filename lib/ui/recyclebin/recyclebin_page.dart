@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../data/notes_repository.dart';
+import '../../data/vault/vault_store.dart';
 import '../../models/note.dart';
+import '../../services/namespace_registry.dart';
+import '../../services/storage_paths.dart';
 import '../../state/note_provider.dart';
 import '../../widgets/article_card.dart';
 
@@ -18,12 +21,39 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
   /// 当前来源过滤（null 表示全部）。
   String? _namespaceFilter;
 
+  /// 已停用能力的命名空间 id（停用后数据仍展示，标签加「已停用」）。
+  Set<String> _disabledNamespaces = const {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NoteProvider>().loadRecycleBin();
+      _loadNamespaceStates();
     });
+  }
+
+  Future<void> _loadNamespaceStates() async {
+    try {
+      final paths = await StoragePaths.resolve();
+      final registry = NamespaceRegistry(store: VaultStore(paths.vaultRoot));
+      await registry.load();
+      final list = await registry.all();
+      final disabled = {
+        for (final item in list)
+          if (item.state != 'active') item.id,
+      };
+      if (!mounted) return;
+      setState(() => _disabledNamespaces = disabled);
+    } catch (_) {
+      // 注册表不可读不影响回收站展示。
+    }
+  }
+
+  String _sourceLabel(String namespaceId, String displayName) {
+    return _disabledNamespaces.contains(namespaceId)
+        ? '$displayName（已停用）'
+        : displayName;
   }
 
   @override
@@ -74,7 +104,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
                             return ArticleCard(
                               node: node,
                               subtitle:
-                                  '${entry.displayName} · ${node.isFolder ? '文件夹（含子项）' : '文章'}',
+                                  '${_sourceLabel(entry.namespaceId, entry.displayName)} · '
+                                  '${node.isFolder ? '文件夹（含子项）' : '文章'}',
                               time: node.isFolder
                                   ? null
                                   : _timeText(node.deletedAt),
@@ -114,7 +145,7 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
           const SizedBox(width: 8),
           for (final entry in namespaces.entries) ...[
             ChoiceChip(
-              label: Text(entry.value),
+              label: Text(_sourceLabel(entry.key, entry.value)),
               selected: _namespaceFilter == entry.key,
               onSelected: (_) => setState(() => _namespaceFilter = entry.key),
             ),
