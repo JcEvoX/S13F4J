@@ -131,7 +131,10 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text('卸载「${plugin.manifest.name}」？'),
-        content: const Text('卸载后需重新从市场下载安装。'),
+        content: const Text(
+          '卸载将停用该插件，但不会删除数据：命名空间、回收站与已有备份都会保留，'
+          '可在备份 / 回收站中继续访问。重新安装后入口与数据自动恢复。',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -139,7 +142,7 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('卸载'),
+            child: const Text('停用并保留数据'),
           ),
         ],
       ),

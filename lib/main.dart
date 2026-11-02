@@ -72,6 +72,16 @@ Future<NotesRepository> _openRepository(
     final registry = NamespaceRegistry(store: store);
     await registry.load();
     await registry.ensureNotes();
+    // 插件启停 / 卸载时同步命名空间状态：停用只改状态，不删数据。
+    PluginManager.instance.onPluginStateChanged = (pluginId, active) async {
+      final reg = NamespaceRegistry(store: store);
+      await reg.load();
+      if (active) {
+        await reg.activate(pluginId);
+      } else {
+        await reg.deactivate(pluginId);
+      }
+    };
     debugPrint('[Bootstrap] 使用文件后端: ${paths.vaultRoot}');
     return repository;
   } catch (e) {
