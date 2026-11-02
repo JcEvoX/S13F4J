@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../state/note_provider.dart';
 import '../../widgets/article_card.dart';
 
-/// 回收站页：恢复 / 永久删除。
+/// 回收站页：按来源聚合，支持恢复 / 永久删除 / 清空。
 class RecycleBinPage extends StatefulWidget {
   const RecycleBinPage({super.key});
 
@@ -14,6 +15,9 @@ class RecycleBinPage extends StatefulWidget {
 }
 
 class _RecycleBinPageState extends State<RecycleBinPage> {
+  /// 当前来源过滤（null 表示全部）。
+  String? _namespaceFilter;
+
   @override
   void initState() {
     super.initState();
@@ -25,7 +29,17 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<NoteProvider>();
-    final hasItems = provider.recycleNodes.isNotEmpty;
+    final entries = provider.recycleEntries;
+    final namespaces = <String, String>{
+      for (final e in entries) e.namespaceId: e.displayName,
+    };
+    final filter =
+        namespaces.containsKey(_namespaceFilter) ? _namespaceFilter : null;
+    final filtered = filter == null
+        ? entries
+        : entries.where((e) => e.namespaceId == filter).toList();
+    final hasItems = filtered.isNotEmpty;
+
     return Scaffold(
       // 顶栏右侧「清空」按钮。
       appBar: AppBar(
@@ -33,33 +47,81 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
         actions: [
           if (hasItems)
             TextButton(
-              onPressed: () => _clearAll(context, provider),
+              onPressed: () => _clearAll(context, provider, filtered),
               child: const Text('清空'),
             ),
         ],
       ),
-      body: hasItems
-          ? ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: provider.recycleNodes.length,
-              itemBuilder: (context, index) {
-                final node = provider.recycleNodes[index];
-                return ArticleCard(
-                  node: node,
-                  subtitle: node.isFolder ? '文件夹（含子项）' : null,
-                  time: node.isFolder ? null : _timeText(node.deletedAt),
-                  trailing: _moreButton(context, provider, node),
-                  onTap: () => _showItemMenu(context, provider, node),
-                  onLongPress: () => _showItemMenu(context, provider, node),
-                );
-              },
-            )
-          : Center(
+      body: entries.isEmpty
+          ? Center(
               child: Text(
                 '回收站为空',
                 style: TextStyle(color: Colors.grey.shade600),
               ),
+            )
+          : Column(
+              children: [
+                // 多来源时按能力分组；单来源时仅显示条目来源标签。
+                if (namespaces.length > 1) _buildSourceFilter(namespaces),
+                Expanded(
+                  child: hasItems
+                      ? ListView.builder(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          itemCount: filtered.length,
+                          itemBuilder: (context, index) {
+                            final entry = filtered[index];
+                            final node = entry.toNode();
+                            return ArticleCard(
+                              node: node,
+                              subtitle:
+                                  '${entry.displayName} · ${node.isFolder ? '文件夹（含子项）' : '文章'}',
+                              time: node.isFolder
+                                  ? null
+                                  : _timeText(node.deletedAt),
+                              trailing:
+                                  _moreButton(context, provider, node),
+                              onTap: () =>
+                                  _showItemMenu(context, provider, node),
+                              onLongPress: () =>
+                                  _showItemMenu(context, provider, node),
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Text(
+                            '当前来源下暂无项目',
+                            style: TextStyle(color: Colors.grey.shade600),
+                          ),
+                        ),
+                ),
+              ],
             ),
+    );
+  }
+
+  /// 来源过滤条：全部 / 各命名空间。
+  Widget _buildSourceFilter(Map<String, String> namespaces) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: const Text('全部'),
+            selected: _namespaceFilter == null,
+            onSelected: (_) => setState(() => _namespaceFilter = null),
+          ),
+          const SizedBox(width: 8),
+          for (final entry in namespaces.entries) ...[
+            ChoiceChip(
+              label: Text(entry.value),
+              selected: _namespaceFilter == entry.key,
+              onSelected: (_) => setState(() => _namespaceFilter = entry.key),
+            ),
+            const SizedBox(width: 8),
+          ],
+        ],
+      ),
     );
   }
 
@@ -110,14 +172,15 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     }
   }
 
-  /// 清空回收站（全部永久删除）。
-  Future<void> _clearAll(
-      BuildContext context, NoteProvider provider) async {
+  /// 清空当前过滤范围内的项目（全部或单来源）。
+  Future<void> _clearAll(BuildContext context, NoteProvider provider,
+      List<ScopedTrashEntry> targets) async {
+    final scope = _namespaceFilter == null ? '回收站' : '当前来源';
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('清空回收站'),
-        content: const Text('将永久删除回收站中的全部项目，无法恢复。确定继续吗？'),
+        content: Text('将永久删除$scope下的 ${targets.length} 个项目，无法恢复。确定继续吗？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -131,8 +194,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
       ),
     );
     if (ok == true) {
-      debugPrint('[RecycleBin] 清空回收站，共 ${provider.recycleNodes.length} 项');
-      await provider.purgeFromRecycle(provider.recycleNodes);
+      debugPrint('[RecycleBin] 清空回收站，共 ${targets.length} 项');
+      await provider.purgeFromRecycle(targets.map((e) => e.toNode()).toList());
     }
   }
 
@@ -142,7 +205,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     return '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')} 删除';
   }
 
-  Future<void> _restore(BuildContext context, NoteProvider provider, NotePadNode node) async {
+  Future<void> _restore(
+      BuildContext context, NoteProvider provider, NotePadNode node) async {
     debugPrint('[RecycleBin] 恢复 nodeId=${node.id}, title=${node.title}');
     await provider.restoreFromRecycle([node]);
     if (context.mounted) {
@@ -152,7 +216,8 @@ class _RecycleBinPageState extends State<RecycleBinPage> {
     }
   }
 
-  Future<void> _purge(BuildContext context, NoteProvider provider, NotePadNode node) async {
+  Future<void> _purge(
+      BuildContext context, NoteProvider provider, NotePadNode node) async {
     debugPrint('[RecycleBin] 永久删除确认 nodeId=${node.id}, title=${node.title}');
     final ok = await showDialog<bool>(
       context: context,

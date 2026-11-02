@@ -28,6 +28,10 @@ class NoteProvider extends ChangeNotifier {
   String? _currentParentId;
   String? get currentParentId => _currentParentId;
 
+  /// 当前文件夹标题（用于顶部栏回显；根层级为 null）。
+  String? _currentFolderTitle;
+  String? get currentFolderTitle => _currentFolderTitle;
+
   /// 当前是否处于多选模式。
   bool _selectionMode = false;
   bool get selectionMode => _selectionMode;
@@ -75,6 +79,11 @@ class NoteProvider extends ChangeNotifier {
     notifyListeners();
     try {
       await _ensureReady();
+      if (parentId == null) {
+        _currentFolderTitle = null;
+      } else {
+        _currentFolderTitle = (await _repo.nodeById(parentId))?.title ?? '';
+      }
       _nodes = await _repo.childrenOf(parentId);
       debugPrint('[NoteProvider] loadFolder 完成: 层级=$parentId, 节点=${_nodes.length}');
     } catch (e) {
@@ -153,6 +162,37 @@ class NoteProvider extends ChangeNotifier {
     debugPrint('[NoteProvider] saveBody: id=$id, 长度=${body.length}');
     await _ensureReady();
     await _repo.writeBody(id, body);
+    _syncSavedNode(id, body);
+  }
+
+  /// 保存后同步内存快照，避免首页 / 搜索结果 / 回收站仍显示旧预览与旧时间。
+  void _syncSavedNode(String id, String body) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final preview = _previewOf(body);
+    var changed = false;
+
+    void replaceIn(List<NotePadNode> list) {
+      final index = list.indexWhere((n) => n.id == id);
+      if (index >= 0) {
+        list[index] = list[index].copyWith(content: preview, updatedAt: now);
+        changed = true;
+      }
+    }
+
+    replaceIn(_nodes);
+    replaceIn(_searchResults);
+    replaceIn(_recycleNodes);
+    if (changed) notifyListeners();
+  }
+
+  /// 卡片副文本：取首个非空行，最多 160 字符。
+  static String _previewOf(String text) {
+    for (final line in text.split('\n')) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+      return trimmed.length > 160 ? trimmed.substring(0, 160) : trimmed;
+    }
+    return '';
   }
 
   // ---- 选中 / 多选 ----
@@ -221,6 +261,8 @@ class NoteProvider extends ChangeNotifier {
     await _ensureReady();
     await _repo.restore(targets.map((n) => n.id).toList());
     await loadRecycleBin();
+    // 恢复的节点可能回到当前层级，刷新当前列表以免首页仍看不到。
+    await refresh();
     debugPrint('[NoteProvider] restoreFromRecycle 完成');
   }
 
