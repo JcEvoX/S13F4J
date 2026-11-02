@@ -109,6 +109,11 @@ void main() {
     expect(File(abs('World.md')).existsSync(), isTrue);
 
     expect(await repo.hasUserContent(), isTrue);
+
+    // 正文指纹用于检测外部修改：文件丢失时返回 missing，正常时非空。
+    expect(await repo.bodyFingerprint(note.id), isNot('missing'));
+    File(abs('World.md')).deleteSync();
+    expect(await repo.bodyFingerprint(note.id), 'missing');
   });
 
   test('同名与改名冲突自动加后缀', () async {

@@ -165,6 +165,18 @@ class NoteProvider extends ChangeNotifier {
     _syncSavedNode(id, body);
   }
 
+  /// 读取正文（编辑器懒加载）。
+  Future<String> readBody(String id) async {
+    await _ensureReady();
+    return _repo.readBody(id);
+  }
+
+  /// 正文指纹：用于检测文件被外部程序修改。
+  Future<String> bodyFingerprint(String id) async {
+    await _ensureReady();
+    return _repo.bodyFingerprint(id);
+  }
+
   /// 保存后同步内存快照，避免首页 / 搜索结果 / 回收站仍显示旧预览与旧时间。
   void _syncSavedNode(String id, String body) {
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -347,6 +359,15 @@ class NoteProvider extends ChangeNotifier {
     await _repo.replaceAll(nodes);
     await refresh();
     await loadRecycleBin();
+  }
+
+  /// 从磁盘重建缓存（外部恢复命名空间快照后调用）。
+  Future<void> reloadFromDisk() async {
+    await _ensureReady();
+    await _repo.reloadFromDisk();
+    await refresh();
+    await loadRecycleBin();
+    debugPrint('[NoteProvider] 已从磁盘重建数据');
   }
 
   /// 定位到指定节点：沿父链向上逐层进入，直到其所在层级成为当前列表。

@@ -237,6 +237,20 @@ class VaultNotesRepository implements NotesRepository {
   }
 
   @override
+  Future<String> bodyFingerprint(String id) async {
+    await _ensureInit();
+    final record = _tree.byId(id);
+    if (record == null || record.isFolder) {
+      throw NotesException('E-NOT-FOUND', '文章不存在: $id');
+    }
+    if (!await _store.exists(record.path)) {
+      return 'missing';
+    }
+    final modified = await _store.modifiedAt(record.path);
+    return '${modified.millisecondsSinceEpoch}';
+  }
+
+  @override
   Future<List<NotePadNode>> allFolders() async {
     await _ensureInit();
     final out = <NotePadNode>[];
@@ -1133,6 +1147,15 @@ class VaultNotesRepository implements NotesRepository {
       if (!_isReservedPath(entry.path)) return true;
     }
     return false;
+  }
+
+  @override
+  Future<void> reloadFromDisk() async {
+    _initialized = false;
+    _initFuture = null;
+    _tree = VaultTree();
+    _index.invalidate();
+    await init();
   }
 
   @override

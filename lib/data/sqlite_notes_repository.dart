@@ -51,6 +51,15 @@ class SqliteNotesRepository implements NotesRepository {
   }
 
   @override
+  Future<String> bodyFingerprint(String id) async {
+    final node = await _dao.nodeById(id);
+    if (node == null) {
+      throw NotesException('E-NOT-FOUND', '文章不存在: $id');
+    }
+    return '${node.updatedAt}:${node.content.length}';
+  }
+
+  @override
   Future<NotePadNode> createNode({
     required bool isFolder,
     required String title,
@@ -186,6 +195,11 @@ class SqliteNotesRepository implements NotesRepository {
 
   @override
   Future<bool> hasUserContent() async => (await _dao.allNodes()).isNotEmpty;
+
+  @override
+  Future<void> reloadFromDisk() async {
+    // SQLite 无外部文件变更，读取即为最新。
+  }
 
   @override
   Future<void> close() async {}

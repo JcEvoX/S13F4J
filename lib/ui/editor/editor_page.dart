@@ -52,6 +52,13 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
 
   /// 保存状态轻提示：保存中… / 已保存 / 保存失败。
   String _saveStatus = '已保存';
+
+  /// 打开 / 上次保存完成时的正文指纹，用于检测外部修改。
+  String? _baseFingerprint;
+
+  /// 外部修改提示框进行中标记，避免重复弹窗。
+  bool _conflictPrompting = false;
+
   int _wordCount = 0;
   SettingsService? _settings;
   NoteProvider? _provider;
@@ -71,20 +78,31 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     provider.setCurrentEditingNodeId(widget.nodeId);
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
+    var body = node?.content ?? '';
+    String? fingerprint;
+    if (node != null && !node.isFolder) {
+      try {
+        body = await provider.readBody(node.id);
+        fingerprint = await provider.bodyFingerprint(node.id);
+      } catch (e) {
+        debugPrint('[Editor] 读取正文失败，回退到节点快照: $e');
+      }
+    }
     if (!mounted) return;
     setState(() {
       _settings = settings;
       _node = node;
       _loading = false;
+      _baseFingerprint = fingerprint;
       if (node != null) {
-        _latestContent = node.content;
-        _controller.text = node.content;
+        _latestContent = body;
+        _controller.text = body;
         _updateWordCount();
       }
     });
     debugPrint(node == null
         ? '[Editor] 节点不存在或已删除 nodeId=${widget.nodeId}'
-        : '[Editor] 加载完成 title=${node.title}, 内容 ${node.content.length} 字符');
+        : '[Editor] 加载完成 title=${node.title}, 内容 ${body.length} 字符');
   }
 
   void _updateWordCount() {
@@ -151,14 +169,39 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     final provider = _provider;
     if (node == null || provider == null || !_dirty) return;
     final content = _latestContent;
-    _dirty = false;
     _saving = true;
     _saveStatus = '保存中…';
     if (mounted) setState(() {});
+
+    // 写盘前先对比指纹：磁盘文件被外部程序改过时，交由用户选择。
+    if (_baseFingerprint != null) {
+      try {
+        final current = await provider.bodyFingerprint(node.id);
+        if (current != _baseFingerprint) {
+          final choice = await _askExternalConflict();
+          if (choice == _ExternalConflictChoice.reload) {
+            await _reloadFromDisk();
+            _saving = false;
+            return;
+          }
+          // 保留当前：以编辑器内容覆盖外部修改。
+          _baseFingerprint = current;
+        }
+      } catch (e) {
+        debugPrint('[Editor] 外部修改检测失败: $e');
+      }
+    }
+
+    _dirty = false;
     debugPrint('[Editor] 保存 nodeId=${node.id}, 内容 ${content.length} 字符');
     try {
       await provider.saveBody(node.id, content);
       _saveStatus = '已保存';
+      try {
+        _baseFingerprint = await provider.bodyFingerprint(node.id);
+      } catch (_) {
+        // 指纹读取失败不影响保存结果。
+      }
       debugPrint('[Editor] 保存完成');
     } catch (e) {
       _dirty = true;
@@ -176,6 +219,105 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     }
   }
 
+  /// 前台恢复时对账：未编辑则静默同步磁盘内容；有未保存内容则询问用户。
+  Future<void> _checkExternalChange() async {
+    final node = _node;
+    final provider = _provider;
+    if (node == null || provider == null || node.isFolder) return;
+    if (_baseFingerprint == null || _conflictPrompting) return;
+    String current;
+    try {
+      current = await provider.bodyFingerprint(node.id);
+    } catch (_) {
+      return;
+    }
+    if (current == _baseFingerprint) return;
+
+    if (!_dirty) {
+      await _reloadFromDisk();
+      return;
+    }
+    final choice = await _askExternalConflict();
+    if (choice == _ExternalConflictChoice.reload) {
+      await _reloadFromDisk();
+      return;
+    }
+    _baseFingerprint = current;
+    await _save();
+  }
+
+  /// 重新从磁盘加载正文（放弃编辑器内未保存内容）。
+  Future<void> _reloadFromDisk() async {
+    final node = _node;
+    final provider = _provider;
+    if (node == null || provider == null) return;
+    try {
+      final body = await provider.readBody(node.id);
+      final fingerprint = await provider.bodyFingerprint(node.id);
+      _saveTimer?.cancel();
+      _saveTimer = null;
+      _controller.text = body;
+      _controller.selection = TextSelection.collapsed(offset: body.length);
+      _latestContent = body;
+      _dirty = false;
+      _baseFingerprint = fingerprint;
+      _saveStatus = '已同步';
+      if (!mounted) return;
+      setState(() {
+        _wordCount = body.trim().isEmpty ? 0 : _countWords(body);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已重新加载磁盘内容')),
+      );
+      debugPrint('[Editor] 已重新加载磁盘内容: ${body.length} 字符');
+    } catch (e) {
+      debugPrint('[Editor] 重新加载失败: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('重新加载失败，请稍后重试')),
+        );
+      }
+    }
+  }
+
+  /// 外部修改确认框：返回重载 / 保留当前。
+  Future<_ExternalConflictChoice> _askExternalConflict() async {
+    if (!mounted || _conflictPrompting) {
+      return _ExternalConflictChoice.keep;
+    }
+    _conflictPrompting = true;
+    _saveStatus = '外部已修改';
+    setState(() {});
+    try {
+      final choice = await showDialog<_ExternalConflictChoice>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('文件已在外部被修改'),
+          content: const Text(
+            '磁盘内容与当前编辑器不一致。'
+            '「重新加载」会放弃本地未保存的修改；'
+            '「保留当前」会用编辑器内容覆盖磁盘文件。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(ctx, _ExternalConflictChoice.reload),
+              child: const Text('重新加载'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, _ExternalConflictChoice.keep),
+              child: const Text('保留当前'),
+            ),
+          ],
+        ),
+      );
+      return choice ?? _ExternalConflictChoice.keep;
+    } finally {
+      _conflictPrompting = false;
+    }
+  }
+
   /// 立即冲刷未落库的内容（离开页面 / 切后台 / 预览前调用）。
   Future<void> _flushSave() async {
     await _save();
@@ -188,6 +330,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       unawaited(_flushSave());
+      return;
+    }
+    // 回到前台时对账：磁盘文件可能被外部程序修改。
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_checkExternalChange());
     }
   }
 
@@ -326,3 +473,6 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     );
   }
 }
+
+/// 外部修改冲突的处理方式。
+enum _ExternalConflictChoice { reload, keep }

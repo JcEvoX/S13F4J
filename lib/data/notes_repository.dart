@@ -69,6 +69,11 @@ abstract class NotesRepository {
 
   Future<void> writeBody(String id, String body);
 
+  /// 正文外部指纹：文件实现返回 mtime，SQLite 返回 updatedAt。
+  ///
+  /// 编辑器在保存前 / 前台恢复时对比该指纹，用于发现「文件被外部程序改动」。
+  Future<String> bodyFingerprint(String id);
+
   /// 新建节点，返回实际落盘后的节点。
   Future<NotePadNode> createNode({
     required bool isFolder,
@@ -108,6 +113,9 @@ abstract class NotesRepository {
 
   /// 是否已有用户内容（迁移前判断，避免覆盖）。
   Future<bool> hasUserContent();
+
+  /// 从磁盘重建内部缓存（外部恢复快照后调用）。
+  Future<void> reloadFromDisk();
 
   Future<void> close();
 }
