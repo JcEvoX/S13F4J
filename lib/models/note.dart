@@ -17,7 +17,7 @@ class NotePadNode {
     this.deletedAt,
   });
 
-  /// 数据库主键（毫秒时间戳字符串，保证单调递增）。
+  /// 数据库主键（微秒时间戳 + 序号字符串，保证唯一）。
   final String id;
 
   /// 是否为文件夹。文件夹无正文内容。
