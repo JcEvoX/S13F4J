@@ -1,12 +1,14 @@
 name: CI
 
 # 任意分支 push 或 PR 时触发：运行静态分析、单元测试并编译 debug 产物。
+# iOS IPA 仅在手动触发（workflow_dispatch）时构建。
 
 on:
   push:
     branches-ignore:
       - 'automation-schedule-permacache/**'
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -134,8 +136,11 @@ jobs:
           path: build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk
           if-no-files-found: error
 
+  # IPA 打包从自动改为手动：仅 Actions -> CI -> Run workflow 时执行，
+  # push / PR 不再产出 IPA。
   ios:
     name: Build iOS (debug, no codesign)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - name: Checkout

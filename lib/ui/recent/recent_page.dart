@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
-import '../../data/note_dao.dart';
 import '../../models/note.dart';
+import '../../state/note_provider.dart';
 import '../../widgets/article_card.dart';
 import '../editor/editor_page.dart';
 
@@ -23,12 +24,12 @@ class _RecentPageState extends State<RecentPage> {
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   Future<void> _load() async {
     debugPrint('[Recent] 加载最近编辑文章');
-    final items = await NoteDao().recentArticles();
+    final items = await context.read<NoteProvider>().recent();
     if (!mounted) return;
     setState(() {
       _items = items;
@@ -61,10 +62,14 @@ class _RecentPageState extends State<RecentPage> {
       node: node,
       time: _timeText(node.updatedAt),
       trailing: const Icon(Icons.chevron_right, size: 20, color: Colors.grey),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
-      ),
+      onTap: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => EditorPage(nodeId: node.id)),
+        );
+        // 编辑返回后重新拉取，更新排序与「最近编辑时间」。
+        if (mounted) await _load();
+      },
     );
   }
 

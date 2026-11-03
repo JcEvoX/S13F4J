@@ -17,7 +17,7 @@ class NotePadNode {
     this.deletedAt,
   });
 
-  /// 数据库主键（毫秒时间戳字符串，保证单调递增）。
+  /// 数据库主键（微秒时间戳 + 序号字符串，保证唯一）。
   final String id;
 
   /// 是否为文件夹。文件夹无正文内容。
@@ -117,4 +117,30 @@ class NotePadNode {
         updatedAt: updatedAt,
         deletedAt: deletedAt,
       );
+}
+
+/// 统计结果。
+class NoteStatistics {
+  const NoteStatistics({
+    required this.folders,
+    required this.articles,
+    required this.words,
+    required this.recycled,
+    required this.lastEditedAt,
+  });
+
+  /// 文件夹数量。
+  final int folders;
+
+  /// 文章数量。
+  final int articles;
+
+  /// 总字数。
+  final int words;
+
+  /// 回收站节点数量。
+  final int recycled;
+
+  /// 最近编辑时间（毫秒，0 表示无数据）。
+  final int lastEditedAt;
 }

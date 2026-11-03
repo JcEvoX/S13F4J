@@ -10,6 +10,7 @@ import '../preview/markdown_preview_settings_page.dart';
 import '../plugins/plugin_center_page.dart';
 import '../recent/recent_page.dart';
 import '../statistics/statistics_page.dart';
+import 'data_health_page.dart';
 import '../theme/editor_font_page.dart';
 import '../theme/wallpaper_page.dart';
 import '../webdav/webdav_page.dart';
@@ -91,6 +92,23 @@ class _SettingsPageState extends State<SettingsPage> {
                     icon: Icons.cloud_outlined,
                     title: '我的 WebDAV',
                     onTap: () => _push(const WebDavPage()),
+                  ),
+                ]),
+                _section('存储与数据'),
+                _group([
+                  _item(
+                    icon: Icons.storage_outlined,
+                    title: '存储后端',
+                    subtitle: s.storageBackend == StorageBackend.files
+                        ? '文件（Vault）'
+                        : 'SQLite（兼容模式）',
+                    onTap: () => _pickStorageBackend(s),
+                  ),
+                  _item(
+                    icon: Icons.health_and_safety_outlined,
+                    title: '数据占用与健康',
+                    subtitle: '命名空间占用、快照、恢复残留',
+                    onTap: () => _push(const DataHealthPage()),
                   ),
                 ]),
                 _section('编辑'),
@@ -366,5 +384,41 @@ class _SettingsPageState extends State<SettingsPage> {
       await s.setStartPage(selected);
       if (mounted) setState(() {});
     }
+  }
+
+  Future<void> _pickStorageBackend(SettingsService s) async {
+    final selected = await showModalBottomSheet<StorageBackend>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: const Text('文件（Vault）'),
+              subtitle: const Text('Markdown 文件 + tree.json 元数据'),
+              trailing: s.storageBackend == StorageBackend.files
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.pop(ctx, StorageBackend.files),
+            ),
+            ListTile(
+              title: const Text('SQLite（兼容模式）'),
+              subtitle: const Text('旧数据库实现，用于回退验证'),
+              trailing: s.storageBackend == StorageBackend.sqlite
+                  ? const Icon(Icons.check)
+                  : null,
+              onTap: () => Navigator.pop(ctx, StorageBackend.sqlite),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || selected == s.storageBackend) return;
+    await s.setStorageBackend(selected);
+    if (!mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('存储后端已切换，重启应用后生效')),
+    );
   }
 }

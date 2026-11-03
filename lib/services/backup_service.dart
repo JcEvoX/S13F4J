@@ -6,8 +6,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/note_dao.dart';
+import '../data/notes_repository.dart';
 import '../models/note.dart';
+import 'backup_center.dart';
 import 'settings_service.dart';
 import 'webdav_service.dart';
 
@@ -106,8 +107,14 @@ class AutoBackupService {
 
   Timer? _timer;
   bool _running = false;
+  NotesRepository? _repository;
 
   bool get running => _running;
+
+  /// 由启动流程注入数据仓储。
+  void attach(NotesRepository repository) {
+    _repository = repository;
+  }
 
   /// 启动周期自动备份。
   void start({Duration interval = const Duration(minutes: 30)}) {
@@ -124,9 +131,20 @@ class AutoBackupService {
 
   /// 立即执行一次自动备份（本地 + WebDAV，按配置决定）。
   Future<void> run() async {
-    debugPrint('[AutoBackup] run 开始, 节点读取中…');
     final settings = await SettingsService.instance;
-    final nodes = await NoteDao().allNodes();
+    // 文件化后端：按命名空间生成 zip 快照（manifest + sha256）。
+    if (settings.storageBackend == StorageBackend.files) {
+      await _runVaultSnapshots(settings);
+      return;
+    }
+
+    final repository = _repository;
+    if (repository == null) {
+      debugPrint('[AutoBackup] 跳过：数据仓储尚未注入');
+      return;
+    }
+    debugPrint('[AutoBackup] run 开始, 节点读取中…');
+    final nodes = await repository.allNodes();
     debugPrint('[AutoBackup] 节点数=${nodes.length}, local=${settings.autoBackupLocal}, webdav=${settings.autoBackupToWebdav}');
 
     if (settings.autoBackupLocal) {
@@ -156,6 +174,50 @@ class AutoBackupService {
         }
       } catch (e) {
         debugPrint('[AutoBackup] WebDAV 备份失败: $e');
+      }
+    }
+  }
+
+  /// 文件后端的自动备份：命名空间快照 + 可选复制到本地目录 / WebDAV。
+  Future<void> _runVaultSnapshots(SettingsService settings) async {
+    final center = BackupCenter.instance;
+    final sources = await center.namespaceSources();
+    debugPrint(
+      '[AutoBackup] Vault 快照: 命名空间=${sources.length}, '
+      'local=${settings.autoBackupLocal}, webdav=${settings.autoBackupToWebdav}',
+    );
+    if (!settings.autoBackupLocal && !settings.autoBackupToWebdav) return;
+
+    for (final source in sources) {
+      try {
+        final snapshot = await center.snapshotNamespace(
+          namespaceId: source.id,
+          displayName: source.displayName,
+          rootPath: source.rootPath,
+        );
+        if (settings.autoBackupLocal) {
+          final dir = settings.backupFolder;
+          if (dir == null || !await Directory(dir).exists()) {
+            debugPrint('[AutoBackup] 本地目录不可用，跳过复制');
+          } else {
+            final target = '$dir${Platform.pathSeparator}${snapshot.fileName}';
+            await File(snapshot.path).copy(target);
+            debugPrint('[AutoBackup] 本地快照副本: $target');
+          }
+        }
+        if (settings.autoBackupToWebdav) {
+          final svc = await _webdavFromPrefs();
+          if (svc == null) {
+            debugPrint('[AutoBackup] WebDAV 未配置，跳过上传');
+          } else {
+            final bytes = await File(snapshot.path).readAsBytes();
+            await svc.uploadBytes(snapshot.fileName, bytes);
+            svc.close();
+            debugPrint('[AutoBackup] WebDAV 快照上传: ${snapshot.fileName}');
+          }
+        }
+      } catch (e) {
+        debugPrint('[AutoBackup] 命名空间 ${source.id} 快照失败: $e');
       }
     }
   }

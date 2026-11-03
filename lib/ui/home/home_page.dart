@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -28,7 +30,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 每个列表项的 GlobalKey，用于「定位正在编辑的文章」滚动定位。
   final Map<String, GlobalKey> _tileKeys = {};
 
@@ -37,9 +39,27 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<NoteProvider>().loadFolder(null);
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    // 前台恢复时重新对账磁盘：外部新增 / 删除 / 改名后列表能及时反映。
+    unawaited(
+      context.read<NoteProvider>().refresh().catchError((Object e) {
+        debugPrint('[Home] 前台刷新失败: $e');
+      }),
+    );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   void _showSnack(String message) {
@@ -215,7 +235,11 @@ class _HomePageState extends State<HomePage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      provider.currentParentId == null ? 'NotePad' : '文件夹',
+                      provider.currentParentId == null
+                          ? 'NotePad'
+                          : (provider.currentFolderTitle?.isNotEmpty == true
+                              ? provider.currentFolderTitle!
+                              : '文件夹'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
@@ -354,14 +378,17 @@ class _HomePageState extends State<HomePage> {
       return _EmptyHint(onCreate: _createNoteDirectly);
     }
     final onReorder = provider.reorder;
-    return ReorderableListView(
-      padding: const EdgeInsets.only(bottom: 96),
-      onReorderItem: onReorder,
-      buildDefaultDragHandles: false,
-      children: [
-        for (final node in provider.nodes)
-          _buildTile(context, provider, node),
-      ],
+    return RefreshIndicator(
+      onRefresh: provider.refresh,
+      child: ReorderableListView(
+        padding: const EdgeInsets.only(bottom: 96),
+        onReorderItem: onReorder,
+        buildDefaultDragHandles: false,
+        children: [
+          for (final node in provider.nodes)
+            _buildTile(context, provider, node),
+        ],
+      ),
     );
   }
 
@@ -498,8 +525,7 @@ class _HomePageState extends State<HomePage> {
     controller.dispose();
     if (!mounted || title == null || title.trim().isEmpty) return;
     final provider = context.read<NoteProvider>();
-    await provider.updateNode(node.copyWith(title: title.trim()));
-    await provider.refresh();
+    await provider.renameNode(node.id, title.trim());
   }
 
   /// 卡片副文本：文章为内容预览，文件夹显示为空。

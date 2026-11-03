@@ -25,6 +25,9 @@ class PluginManager extends ChangeNotifier {
   SharedPreferences? _prefs;
   Directory? _pluginsDir;
 
+  /// 插件启停回调：由启动流程注入，用于同步命名空间注册表状态。
+  Future<void> Function(String pluginId, bool active)? onPluginStateChanged;
+
   List<InstalledPlugin> get plugins => List.unmodifiable(_plugins);
 
   /// 当前启用的插件（热插拔后即时反映）。
@@ -106,19 +109,24 @@ class PluginManager extends ChangeNotifier {
     p.enabled = enabled;
     await _save();
     notifyListeners();
+    await onPluginStateChanged?.call(p.manifest.id, enabled);
   }
 
-  /// 卸载外部插件（内置插件不可卸载）。
+  /// 卸载外部插件：停用并保留数据（D9）。
+  ///
+  /// 只删除插件包资源，保留插件记录与命名空间数据；
+  /// 重新安装后入口与数据自动恢复。
   Future<void> uninstall(String id) async {
     final p = byId(id);
     if (p == null || p.manifest.builtin) return;
-    _plugins.remove(p);
+    p.enabled = false;
     if (_pluginsDir != null) {
       final dir = Directory('${_pluginsDir!.path}/$id');
       if (await dir.exists()) await dir.delete(recursive: true);
     }
     await _save();
     notifyListeners();
+    await onPluginStateChanged?.call(id, false);
   }
 
   void _loadFromPrefs() {

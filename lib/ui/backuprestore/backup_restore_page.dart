@@ -2,12 +2,12 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../data/note_dao.dart';
 import '../../models/note.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import '../../state/note_provider.dart';
 import '../webdav/webdav_page.dart';
+import 'namespace_backup_page.dart';
 
 /// 备份和恢复页。
 ///
@@ -87,8 +87,18 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 ),
                 const Divider(),
                 _actionTile(
+                  icon: Icons.inventory_2_outlined,
+                  title: '备份中心（按命名空间）',
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const NamespaceBackupPage(),
+                    ),
+                  ),
+                ),
+                _actionTile(
                   icon: Icons.save_alt,
-                  title: '备份到本地',
+                  title: '导出旧格式 JSON',
                   onTap: () => _backupToLocal(s),
                 ),
                 _actionTile(
@@ -101,7 +111,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
                 ),
                 _actionTile(
                   icon: Icons.restore,
-                  title: '恢复备份',
+                  title: '导入旧 JSON 备份',
                   onTap: () => _restore(),
                 ),
                 if (_busy)
@@ -171,7 +181,7 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
         _toast('请先选择备份文件夹');
         return;
       }
-      final nodes = await NoteDao().allNodes();
+      final nodes = await context.read<NoteProvider>().allNodes();
       final name = await BackupService.backupToDirectory(dir, nodes);
       debugPrint('[BackupRestore] 备份到本地完成: $name');
       _toast(name == null ? '备份已取消' : '备份成功：$name');
@@ -229,11 +239,8 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
     setState(() => _busy = true);
     debugPrint('[BackupRestore] 确认恢复: ${file.name}, 节点=${nodes.length}');
     try {
-      final dao = NoteDao();
-      await dao.replaceAll(nodes);
+      await context.read<NoteProvider>().replaceAll(nodes);
       if (!mounted) return;
-      await context.read<NoteProvider>().refresh();
-      await context.read<NoteProvider>().loadRecycleBin();
       debugPrint('[BackupRestore] 恢复完成');
       _toast('恢复成功');
     } catch (e) {

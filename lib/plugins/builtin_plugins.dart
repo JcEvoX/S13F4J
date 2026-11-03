@@ -26,7 +26,7 @@ PluginManifest builtinFileBrowserPlugin() => const PluginManifest(
       id: 'builtin.files',
       name: '文件系统',
       version: '1.0.0',
-      description: '通过系统文件选择器（SAF）读取本地文件/文档内容。',
+      description: '只读浏览设备文件：单文件临时查看，或按项目导入文件夹。',
       capability: 'file.browser',
       icon: 'folder_open',
       builtin: true,
