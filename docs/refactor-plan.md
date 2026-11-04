@@ -430,3 +430,19 @@ abstract class StorageCapability {
 ## 9. 开工建议
 
 先只做 M0。这一步不改任何用户可见行为，但会把 `NoteProvider` 与 `NoteDao` 的耦合切开；M1 再把 `TrashPolicy` / `BackupPolicy` 契约和 notes 实现一起落，用契约测试证明「文件实现与旧实现等价」。M0 完成后建议再评审一次接口签名，再进 M1，避免返工。
+
+## 10. 实现状态（2026-11-04）
+
+> 依据 `lib/` 与 `test/` 的实际内容核对；「手工矩阵」类验收尚未在设备上逐项执行。
+
+| 里程碑 | 代码状态 | 自动化验证 | 缺口 |
+|---|---|---|---|
+| M0 接缝 | 完成：`NotesRepository` + `SqliteNotesRepository`，`NoteProvider` 注入 | `repository_contract_test`（sqlite / vault 双跑） | — |
+| M1 内核 | 完成：`StorageRoot` / `NamespaceHandle` / vault / tree / 文件名策略 / 索引 | `vault_repository_test`、`filename_policy_test`、`storage_boundary_test` | 缺 `tree_store_test`、`reconcile_test`、崩溃注入、10k 基准脚本 |
+| M2 迁移 | 完成：`LegacyMigrator`、backend 开关与失败回退 | 无 | 缺迁移黄金测试（fixture 迁移 / 幂等 / 回滚） |
+| M3 UI | 已对接：首页、编辑器、搜索、回收站、外部改动对账 | 无 widget 级覆盖 | 手工矩阵待执行 |
+| M4 备份 / 回收站 | 已实现：`BackupCenter`、聚合回收站、WebDAV、数据健康页；Android `fullBackupContent` / `dataExtractionRules` 与 iOS `isExcludedFromBackup` 已配置 | 无 | 缺 `backup_center_test`（hash 失败 / zip slip / zip bomb / 中断重入）；`TrashCenter` 未独立拆出；平台排除项需真机验证 |
+| M5 插件语义 | 已实现：manifest `namespace` / `uninstallable` / `schema`、内置笔记可卸载（= 停用）、启停状态跨重启保留、注册表启动对齐、`forget` 回收站非空拒绝、笔记停用后的能力首页 | `namespace_registry_test`、`plugin_model_test` | `forget` 暂无 UI 入口（仅 `removeProject` 内部使用） |
+| 文件阅读 | 项目导入 / 浏览 / 更新 / 移除 / 另存为笔记已实现 | 无 | `ExternalOpenService`（系统打开方式 / 分享）待排期 |
+
+**后续建议顺序**：补 `backup_center_test` 与迁移黄金测试（风险最高的两条数据路径）→ 补 tree / 对账 / 崩溃注入测试 → 拆出 `TrashCenter` → 清理 sqlite 实现（D10：保留至下一个大版本）。

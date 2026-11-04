@@ -4,7 +4,7 @@
 > 状态：与《文件化改造方案（v2.1）》口径一致
 > 日期：2026-10-31
 > 关联文档：[refactor-plan.md](./refactor-plan.md) · [product.md](./product.md)
-> 代码基线：当前 `lib/` 下 sqflite 权威实现（`lib/data/app_database.dart`、`lib/data/note_dao.dart`）
+> 代码基线：文件 vault 为默认后端（`lib/data/vault/`），sqlite 实现（`lib/data/sqlite_notes_repository.dart`）作为 `storage.backend=sqlite` 的回退保留；实现状态见 [refactor-plan.md](./refactor-plan.md) 第 10 节
 
 ---
 
@@ -127,7 +127,7 @@ flowchart TB
 | `TrashCenter` | 子树搬运、manifest、恢复、清空、聚合 | 只有宿主可搬运；能力只提供策略 |
 | `NamespaceBackupCenter` | 单命名空间 zip 快照 / 恢复 | 容器格式固定；sha256 校验 |
 | `AppBackupCenter` | 整机包、逐命名空间恢复、journal | 不宣称跨命名空间原子 |
-| `PluginManager` | 安装、启停、卸载语义 | 卸载 = 停用；内置可停用 |
+| `PluginManager` | 安装、启停、卸载语义 | 卸载 = 停用并保留数据；内置插件通过 `uninstallable` 声明可卸载（仅停用，不删包） |
 | `ExternalOpenService` | 接收系统外部打开请求；解析 URI / 临时文件；管理只读会话 | 待排期；当前仅支持应用内文件选择器 |
 | `ProjectStore` | 扫描源目录、预览、拷贝到 staging、注册项目命名空间 | 只拷贝，不改源目录；跳过符号链接；失败清理 staging |
 | `FilesCapability` | 文件阅读能力的 `StorageCapability` 实现 | 每个项目一个实例；`TrashPolicy = null`；备份按项目命名空间 |
@@ -286,7 +286,7 @@ flowchart TB
 |---|---|
 | `root` | 空 = 根即 `vaultRoot`；绝对路径 / URI = 外部根（文件阅读项目使用绝对路径） |
 | `state` | `active` / `disabled` / `missing` |
-| `drivers` | 该能力是否提供备份 / 回收站驱动；缺失则 UI 隐藏或警告 |
+| `drivers` | 该能力**是否提供**备份 / 回收站驱动（能力属性，不随停用变化）；缺失则 UI 隐藏或警告。文件阅读项目 `trash=false` |
 | 多命名空间同插件 | 允许；`files.<projectId>` 均属 `builtin.files`，停用插件时统一置 `disabled` |
 
 生命周期：`register` → `resolve` → `deactivate(pluginId)` → `activate(pluginId)` → `forget(namespaceId)`。
@@ -574,7 +574,9 @@ abstract class NamespaceRegistry {
 }
 ```
 
-`deactivate` 只改 `state` 与 `drivers`，不动数据；`forget` 移除记录并要求 trash 为空。
+`deactivate` 只改 `state`，不动 `drivers` 与数据；`activate` 恢复 `active` 并按能力默认值校正 `drivers`（`files.*` 恒不提供回收站）。
+`forget` 移除记录，回收站非空（manifest 条目或 `items/` 子项）时抛 `E-CONFLICT` 并保留记录；二次确认由 UI 负责。
+`syncPluginStates` 在启动时把插件启停状态对齐到注册表，保证重启后内置插件的停用态不丢失。
 
 ### 5.5 ExternalOpenService（单文件外部调用）
 
@@ -800,12 +802,12 @@ sequenceDiagram
 
     UI->>PM: 停用 builtin.notes
     PM->>NR: deactivate(pluginId)
-    NR->>NR: state=disabled，drivers 置 false
+    NR->>NR: state=disabled（drivers 不变）
     PM->>PM: enabled=false，隐藏入口
     Note over PM,NR: 数据、trash、备份、tree 全部保留
     UI->>PM: 重新启用
     PM->>NR: activate(pluginId)
-    NR->>NR: state=active，drivers 恢复
+    NR->>NR: state=active，drivers 按能力默认值校正
     PM->>Cap: 重新注册能力入口
     Cap-->>UI: 首页恢复显示笔记
 ```
@@ -1125,14 +1127,16 @@ lib/
    └─ plugins/                           # 插件中心语义（M5）
 ```
 
-**当前基线映射**
+**实际落地映射**（与上面的规划目录的差异）
 
-- 权威数据层：[app_database.dart](file:///workspace/lib/data/app_database.dart)、[note_dao.dart](file:///workspace/lib/data/note_dao.dart)
-- 状态分发：[note_provider.dart](file:///workspace/lib/state/note_provider.dart)
-- 备份（整库 JSON）：[backup_service.dart](file:///workspace/lib/services/backup_service.dart)
-- WebDAV（已支持字节上传）：[webdav_service.dart](file:///workspace/lib/services/webdav_service.dart#L91-L95)
-- 声明式插件：[plugin_model.dart](file:///workspace/lib/plugins/plugin_model.dart)、[plugin_manager.dart](file:///workspace/lib/plugins/plugin_manager.dart)
-- 设置项：[settings_service.dart](file:///workspace/lib/services/settings_service.dart)
+- 回收站：搬运 / 恢复 / 清空在 [vault_notes_repository.dart](file:///workspace/lib/data/vault/vault_notes_repository.dart) 内完成，manifest 读写在 [trash_store.dart](file:///workspace/lib/data/vault/trash_store.dart)；**尚未拆出独立的 `TrashCenter`**，聚合视图由 `NotesRepository.listTrash()` 提供。
+- 备份：`NamespaceBackupCenter` / `AppBackupCenter` 合并为单个 [backup_center.dart](file:///workspace/lib/services/backup_center.dart)（`BackupCenter`）；旧 JSON 导入仍在 [backup_service.dart](file:///workspace/lib/services/backup_service.dart)。
+- 项目导入：`ProjectImporter` + `ProjectStore` 合并为 [project_store.dart](file:///workspace/lib/services/project_store.dart)；`data/files/` 目录不存在。
+- 迁移：[legacy_migrator.dart](file:///workspace/lib/data/migration/legacy_migrator.dart)、[legacy_sqlite_source.dart](file:///workspace/lib/data/migration/legacy_sqlite_source.dart)；`legacy_json_importer.dart` 未单独拆出。
+- 注册表：[namespace_registry.dart](file:///workspace/lib/services/namespace_registry.dart)；能力描述在 [storage_capability.dart](file:///workspace/lib/core/storage/storage_capability.dart)，notes 能力在 [notes_capability.dart](file:///workspace/lib/data/vault/notes_capability.dart)。
+- 插件：[plugin_model.dart](file:///workspace/lib/plugins/plugin_model.dart)（`namespace` / `uninstallable` / `schema`）、[plugin_manager.dart](file:///workspace/lib/plugins/plugin_manager.dart)；笔记停用后的首页为 [capability_home_page.dart](file:///workspace/lib/ui/home/capability_home_page.dart)。
+- 未实现：`ExternalOpenService`（待排期）、`external_open_service.dart`。
+- sqlite 回退实现保留（[sqlite_notes_repository.dart](file:///workspace/lib/data/sqlite_notes_repository.dart) + `note_dao.dart` + `app_database.dart`），与文件实现共用 `test/repository_contract_test.dart`。
 
 ---
 
