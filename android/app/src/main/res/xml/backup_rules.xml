@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 及以下：自动备份排除本机派生 / 运维数据（见 docs/architecture.md 第 12 节）。
+     file 域对应 getApplicationSupportDirectory()，其下 Notepad/ 即 appDataRoot：
+     索引、快照、日志、staging，均可重建或属于本机运维数据。 -->
+<full-backup-content>
+    <exclude domain="file" path="Notepad" />
+</full-backup-content>
