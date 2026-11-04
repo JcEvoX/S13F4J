@@ -23,6 +23,8 @@ class PluginManifest {
     this.namespace,
     bool? uninstallable,
     this.schema = 1,
+    this.contributes,
+    this.activationEvents = const [],
   }) : _uninstallable = uninstallable;
 
   /// 唯一标识，如 `builtin.notes`、`file.browser`。
@@ -56,6 +58,13 @@ class PluginManifest {
   /// 命名空间数据格式版本，随注册表记录一起保存。
   final int schema;
 
+  /// 工作台贡献点（命令 / 菜单 / 视图 / 编辑器 / 状态栏），原样保存，
+  /// 由 `lib/workbench` 解析（见 docs/workbench.md）。
+  final Map<String, Object?>? contributes;
+
+  /// 激活事件：`onStartup` / `onCommand:<id>` / `onResource:<scheme>` 等；空 = 启动时激活。
+  final List<String> activationEvents;
+
   final bool? _uninstallable;
 
   /// 是否允许「卸载」。卸载 = 停用并保留数据（D9）；
@@ -83,6 +92,10 @@ class PluginManifest {
       namespace: json['namespace'] as String?,
       uninstallable: json['uninstallable'] as bool?,
       schema: (json['schema'] as num?)?.toInt() ?? 1,
+      contributes: (json['contributes'] as Map?)?.cast<String, Object?>(),
+      activationEvents:
+          (json['activationEvents'] as List?)?.whereType<String>().toList() ??
+              const [],
     );
   }
 
@@ -100,6 +113,8 @@ class PluginManifest {
         if (namespace != null) 'namespace': namespace,
         if (_uninstallable != null) 'uninstallable': _uninstallable,
         'schema': schema,
+        if (contributes != null) 'contributes': contributes,
+        if (activationEvents.isNotEmpty) 'activationEvents': activationEvents,
       };
 }
 
