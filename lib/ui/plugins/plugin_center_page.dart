@@ -216,7 +216,7 @@ class _PluginCenterPageState extends State<PluginCenterPage> {
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (!p.manifest.builtin)
+              if (p.manifest.canUninstall)
                 IconButton(
                   tooltip: '卸载',
                   icon: const Icon(Icons.delete_outline),

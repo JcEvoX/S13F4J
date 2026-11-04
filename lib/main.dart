@@ -15,6 +15,7 @@ import 'services/storage_paths.dart';
 import 'state/note_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
+import 'ui/home/capability_home_page.dart';
 import 'ui/home/home_page.dart';
 
 Future<void> main() async {
@@ -72,6 +73,10 @@ Future<NotesRepository> _openRepository(
     final registry = NamespaceRegistry(store: store);
     await registry.load();
     await registry.ensureNotes();
+    await registry.syncPluginStates({
+      for (final plugin in PluginManager.instance.plugins)
+        plugin.manifest.id: plugin.enabled,
+    });
     // 插件启停 / 卸载时同步命名空间状态：停用只改状态，不删数据。
     PluginManager.instance.onPluginStateChanged = (pluginId, active) async {
       final reg = NamespaceRegistry(store: store);
@@ -128,7 +133,14 @@ class _Root extends StatelessWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: themeController.themeMode,
-      home: const HomePage(),
+      home: ListenableBuilder(
+        listenable: PluginManager.instance,
+        builder: (context, _) {
+          final notes = PluginManager.instance.byId('builtin.notes');
+          final notesEnabled = notes?.enabled ?? true;
+          return notesEnabled ? const HomePage() : const CapabilityHomePage();
+        },
+      ),
     );
   }
 }

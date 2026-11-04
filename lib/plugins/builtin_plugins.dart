@@ -20,6 +20,8 @@ PluginManifest builtinNotesPlugin() => const PluginManifest(
       icon: 'note_alt',
       builtin: true,
       author: 'JcEvoX',
+      namespace: 'notes',
+      uninstallable: true,
     );
 
 PluginManifest builtinFileBrowserPlugin() => const PluginManifest(
@@ -31,6 +33,8 @@ PluginManifest builtinFileBrowserPlugin() => const PluginManifest(
       icon: 'folder_open',
       builtin: true,
       author: 'JcEvoX',
+      namespace: 'files',
+      uninstallable: true,
     );
 
 /// 注册宿主内置能力（应用启动时调用一次）。
@@ -44,6 +48,9 @@ void registerBuiltinCapabilities() {
 class _NoteEditorCapability extends Capability {
   @override
   String get id => 'note.editor';
+
+  @override
+  String get namespaceId => 'notes';
 
   @override
   String get name => '笔记编辑器';
@@ -69,6 +76,9 @@ class _NoteEditorCapability extends Capability {
 class _FileBrowserCapability extends Capability {
   @override
   String get id => 'file.browser';
+
+  @override
+  String get namespaceId => 'files';
 
   @override
   String get name => '文件系统读取';

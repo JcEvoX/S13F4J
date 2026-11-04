@@ -22,6 +22,7 @@ class PluginManager extends ChangeNotifier {
   static const _kEnabled = 'plugins.enabled';
 
   final List<InstalledPlugin> _plugins = [];
+  Map<String, bool> _persistedEnabled = {};
   SharedPreferences? _prefs;
   Directory? _pluginsDir;
 
@@ -50,10 +51,15 @@ class PluginManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 注册内置插件（随应用分发，默认启用、不可卸载）。
+  /// 注册内置插件（随应用分发，默认启用；启停状态从持久化设置恢复）。
   void registerBuiltin(PluginManifest manifest) {
     if (byId(manifest.id) != null) return;
-    _plugins.add(InstalledPlugin(manifest: manifest, enabled: true));
+    _plugins.add(
+      InstalledPlugin(
+        manifest: manifest,
+        enabled: _persistedEnabled[manifest.id] ?? true,
+      ),
+    );
     notifyListeners();
   }
 
@@ -112,15 +118,15 @@ class PluginManager extends ChangeNotifier {
     await onPluginStateChanged?.call(p.manifest.id, enabled);
   }
 
-  /// 卸载外部插件：停用并保留数据（D9）。
+  /// 卸载插件：停用并保留数据（D9）。
   ///
-  /// 只删除插件包资源，保留插件记录与命名空间数据；
-  /// 重新安装后入口与数据自动恢复。
+  /// 外部插件额外删除插件包资源；内置插件随应用分发，仅停用。
+  /// 命名空间、回收站与备份一律保留，重新启用 / 安装后入口与数据自动恢复。
   Future<void> uninstall(String id) async {
     final p = byId(id);
-    if (p == null || p.manifest.builtin) return;
+    if (p == null || !p.manifest.canUninstall) return;
     p.enabled = false;
-    if (_pluginsDir != null) {
+    if (!p.manifest.builtin && _pluginsDir != null) {
       final dir = Directory('${_pluginsDir!.path}/$id');
       if (await dir.exists()) await dir.delete(recursive: true);
     }
@@ -148,8 +154,12 @@ class PluginManager extends ChangeNotifier {
     final enabledRaw = _prefs?.getString(_kEnabled);
     if (enabledRaw != null && enabledRaw.isNotEmpty) {
       final map = jsonDecode(enabledRaw) as Map<String, dynamic>;
+      _persistedEnabled = {
+        for (final e in map.entries)
+          if (e.value is bool) e.key: e.value as bool,
+      };
       for (final p in _plugins) {
-        p.enabled = map[p.manifest.id] as bool? ?? true;
+        p.enabled = _persistedEnabled[p.manifest.id] ?? true;
       }
     }
   }
