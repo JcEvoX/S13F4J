@@ -32,7 +32,8 @@ void main() {
 
   test('笔记 = 标题.md，文件夹 = 标题；顺序沿用仓库排序', () async {
     final folder = await repo.createNode(isFolder: true, title: '工作');
-    await repo.createNode(isFolder: false, title: '周报', parentId: folder.id, content: '本周');
+    await repo.createNode(
+        isFolder: false, title: '周报', parentId: folder.id, content: '本周');
     await repo.createNode(isFolder: false, title: '随笔', content: 'x');
 
     expect(await names('/'), ['工作', '随笔.md']);
@@ -106,14 +107,17 @@ void main() {
     final renamed = await fs.rename(notes('/old.md'), 'new');
     expect(renamed.path, '/new.md');
     expect(await fs.readText(renamed), 'c');
-    await expectLater(fs.stat(notes('/old.md')), throwsA(isA<FileSystemError>()));
+    await expectLater(
+        fs.stat(notes('/old.md')), throwsA(isA<FileSystemError>()));
 
-    await expectLater(fs.rename(notes('/'), 'x'), throwsA(isA<FileSystemError>()));
+    await expectLater(
+        fs.rename(notes('/'), 'x'), throwsA(isA<FileSystemError>()));
     await expectLater(fs.delete(notes('/')), throwsA(isA<FileSystemError>()));
   });
 
   test('delete 进入回收站（可恢复），不再出现在目录里', () async {
-    final node = await repo.createNode(isFolder: false, title: 'gone', content: 'c');
+    final node =
+        await repo.createNode(isFolder: false, title: 'gone', content: 'c');
     expect(fs.deleteGoesToTrash, isTrue);
     await fs.delete(notes('/gone.md'));
     expect(await names('/'), isEmpty);

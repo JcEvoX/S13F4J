@@ -177,6 +177,11 @@ PluginInfo coreExtensionInfo() => const PluginInfo(
         },
         'editors': [
           {
+            'viewType': kWelcomeViewType,
+            'displayName': '欢迎',
+            'priority': 'option',
+          },
+          {
             'viewType': kTextEditorViewType,
             'displayName': '文本',
             'priority': 'builtin',

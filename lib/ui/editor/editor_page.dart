@@ -79,7 +79,8 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     final provider = context.read<NoteProvider>();
     _provider = provider;
     // 记录当前正在编辑的文章，供首页「定位正在编辑的文章」使用。
-    provider.setCurrentEditingNodeId(widget.nodeId);
+    // 嵌入工作台标签时同时存在多个编辑器，「当前编辑文章」只对首页定位有意义。
+    if (!widget.embedded) provider.setCurrentEditingNodeId(widget.nodeId);
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
     var body = node?.content ?? '';
@@ -351,7 +352,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _saveTimer = null;
     if (_dirty) unawaited(_save());
     // 离开编辑器后清除「当前编辑文章」，避免首页定位到已关闭的文章。
-    _provider?.setCurrentEditingNodeId(null);
+    if (!widget.embedded) _provider?.setCurrentEditingNodeId(null);
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -375,8 +376,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         ? null
         : settings.editorFontFamily;
 
-    final scaffold =
-        _buildScaffold(node, settings, fontSize, fontFamily);
+    final scaffold = _buildScaffold(node, settings, fontSize, fontFamily);
     if (widget.embedded) return scaffold;
 
     return PopScope(
