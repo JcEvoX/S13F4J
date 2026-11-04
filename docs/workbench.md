@@ -1,6 +1,6 @@
 # NotePad 工作台（Workbench）能力底座设计
 
-> 版本：v0.1（草案，随实现迭代）
+> 版本：v0.2（W1–W3 已实现，W4 起为后续）
 > 日期：2026-11-04
 > 关联文档：[product.md](./product.md) · [architecture.md](./architecture.md) · [refactor-plan.md](./refactor-plan.md)
 
@@ -31,14 +31,17 @@ lib/workbench/
 ├─ services/    CommandRegistry · FileSystemRegistry · ContributionRegistry
 │               EditorRegistry · ExtensionHost · Workbench（编辑器分组 / 会话 / 工作区）
 │               QuickOpen · WorkspaceSearch
-├─ extensions/  core（通用命令 + 文本编辑器 + 欢迎页）· notes · files   （宿主内置能力）
-└─ ui/          WorkbenchPage · 活动栏 · 资源管理器 · 标签条 · 命令面板 · 状态栏
+├─ ui/          WorkbenchPage · 活动栏 / 侧栏 · 资源管理器 · 标签条 · 命令面板 · 状态栏 · 文本 / 欢迎编辑器
+├─ extensions/  core（通用命令 + 视图 / 编辑器注册）· notes · files   （宿主内置能力）
+└─ bootstrap    把 PluginManager、NotesRepository、VaultStore 接到 Workbench / ExtensionHost
 ```
 
-- `base/`、`services/` 不依赖 `ui/`；`services/` 可依赖 `core/storage` 与 `data/`，反向禁止。
+- 依赖方向：`base` ← `services` ← `ui` ← `extensions` ← `bootstrap`。`services` 不 import `ui`；
+  `ui` 不认识任何具体能力；只有 `extensions/` 同时认识能力实现与 UI（提供视图 / 编辑器的 builder）。
+- `extensions/` 可以依赖 `data/`（`NotesRepository`）与 `services/project_store.dart`，反向禁止。
 - `plugins/` 只存数据（manifest 的 `contributes` / `activationEvents` 原样保存），**不依赖** `workbench/`。
-- 能力只能通过 `ExtensionContext` 注册贡献，拿不到注册表本体；所有注册返回 `Disposable`，
-  停用时由宿主统一释放。
+- 能力通过 `ExtensionContext` 注册贡献；所有注册返回 `Disposable` 并自动进入 `subscriptions`，
+  停用 / 激活失败时由宿主统一释放。能力代码不应绕过 context 直接改注册表，否则宿主无法回收。
 - 笔记 / 项目的数据路径不变：仍由 `NotesRepository`、`ProjectStore`、`BackupCenter` 负责，
   `FileSystemProvider` 只是它们面向工作台的适配层。
 
@@ -69,7 +72,8 @@ lib/workbench/
 - 命令 = `id` + 元数据（标题 / 分类 / `when`）+ 处理函数（`CommandContext`：`workbench` + `args`）。
 - 元数据来自 manifest；处理函数由 `HostExtension.activate` 注册，或由 manifest 的 `run` 宏提供。
 - 执行一个尚未注册处理函数的命令会触发 `onCommand:<id>` 激活事件，再重试一次。
-- `when` 语法：`key` · `!expr` · `a && b` · `a || b` · `key == 'v'` · `key != v` · 括号。
+- `when` 语法：`key` · `!expr` · `a && b` · `a || b` · `key == 'v'` · `key != v` · `key > n`（`>=` `<` `<=`）· 括号；
+  `&&` 优先于 `||`；解析失败的子句按「恒假」处理，坏 manifest 不会让菜单到处出现。
 - 标准上下文键：`resourceScheme` / `resourceFilename` / `resourceExtname` / `resourceReadOnly`（活动编辑器）、
   `explorerResourceScheme` / `explorerResourceIsFolder` / `explorerResourceIsRoot`（资源管理器选中项）、
   `editorViewType`、`sidebarVisible`、`workspaceFolderCount`。
@@ -157,8 +161,17 @@ abstract class HostExtension {
 
 | 阶段 | 内容 | 状态 |
 |---|---|---|
-| W1 | `base/` + `services/`（URI / 命令 / when / 文件系统 / 贡献 / 编辑器 / 宿主 / 工作台状态）与单元测试 | 本期 |
-| W2 | `extensions/`（core / notes / files）+ manifest `contributes` 解析 + 内置插件迁移 | 本期 |
-| W3 | `ui/` 工作台外壳（活动栏 / 资源管理器 / 标签 / 面板 / 状态栏）+ 根界面切换 + widget 测试 | 本期 |
+| W1 | `base/` + `services/`（URI / 命令 / when / 文件系统 / 贡献 / 编辑器 / 宿主 / 工作台状态 / 快速打开）与单元测试 | 已完成 |
+| W2 | `extensions/`（core / notes / files）+ manifest `contributes` / `activationEvents` + 内置插件声明迁移 | 已完成 |
+| W3 | `ui/` 工作台外壳 + 根界面按「插件系统」开关切换 + widget 测试 | 已完成 |
 | W4 | 全文搜索视图、打开方式、编辑器拆分、键盘快捷键（桌面）、设置贡献点 | 后续 |
 | W5 | git 能力（独立命名空间 + `FileSystemProvider` + SCM 视图）| 后续 |
+
+## 10. 测试覆盖
+
+| 文件 | 覆盖 |
+|---|---|
+| `test/workbench/base_test.dart` | URI 规范化 / when 语法与求值 / 上下文键通知 / Disposable / 模糊匹配 |
+| `test/workbench/services_test.dart` | 贡献解析 / glob / 菜单排序 / 编辑器解析 / 文件系统注册表 / 扩展宿主（懒激活、停用释放、失败隔离、宏）/ 标签与会话 / 快速打开 |
+| `test/workbench/notes_provider_test.dart` | `NotesFileSystemProvider` 经真实 `VaultNotesRepository` 的读写、重命名、回收站与错误码 |
+| `test/workbench/workbench_page_test.dart` | 宽 / 窄屏外壳、资源管理器展开与打开、命令面板、上下文菜单、插件停用 / 启用后的界面收敛、只读与缺失资源 |

@@ -15,6 +15,8 @@ IconData iconByName(String? name) {
       return Icons.description_outlined;
     case 'code':
       return Icons.code;
+    case 'terminal':
+      return Icons.terminal;
     case 'settings':
       return Icons.settings_outlined;
     case 'source':
