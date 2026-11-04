@@ -20,7 +20,10 @@ class PluginManifest {
     this.author,
     this.downloadUrl,
     this.assets,
-  });
+    this.namespace,
+    bool? uninstallable,
+    this.schema = 1,
+  }) : _uninstallable = uninstallable;
 
   /// 唯一标识，如 `builtin.notes`、`file.browser`。
   final String id;
@@ -36,7 +39,7 @@ class PluginManifest {
   /// Material Icons 名称（如 `note_alt`、`folder_open`）。
   final String icon;
 
-  /// 是否随应用分发（内置插件不可卸载）。
+  /// 是否随应用分发。内置插件默认不可卸载，可由 [uninstallable] 显式放开。
   final bool builtin;
   final String? author;
 
@@ -45,6 +48,25 @@ class PluginManifest {
 
   /// 插件包内携带的资源文件（相对路径，可选）。
   final List<String>? assets;
+
+  /// 插件拥有的命名空间：id 等于该值，或以 `<namespace>.` 开头（如 `files.p-01`）。
+  /// null 表示插件不持有持久数据。
+  final String? namespace;
+
+  /// 命名空间数据格式版本，随注册表记录一起保存。
+  final int schema;
+
+  final bool? _uninstallable;
+
+  /// 是否允许「卸载」。卸载 = 停用并保留数据（D9）；
+  /// 未显式声明时，外部插件可卸载、内置插件不可卸载。
+  bool get canUninstall => _uninstallable ?? !builtin;
+
+  bool ownsNamespace(String namespaceId) {
+    final ns = namespace;
+    if (ns == null || ns.isEmpty) return false;
+    return namespaceId == ns || namespaceId.startsWith('$ns.');
+  }
 
   factory PluginManifest.fromJson(Map<String, dynamic> json) {
     return PluginManifest(
@@ -58,6 +80,9 @@ class PluginManifest {
       author: json['author'] as String?,
       downloadUrl: json['downloadUrl'] as String?,
       assets: (json['assets'] as List?)?.cast<String>(),
+      namespace: json['namespace'] as String?,
+      uninstallable: json['uninstallable'] as bool?,
+      schema: (json['schema'] as num?)?.toInt() ?? 1,
     );
   }
 
@@ -72,6 +97,9 @@ class PluginManifest {
         if (author != null) 'author': author,
         if (downloadUrl != null) 'downloadUrl': downloadUrl,
         if (assets != null) 'assets': assets,
+        if (namespace != null) 'namespace': namespace,
+        if (_uninstallable != null) 'uninstallable': _uninstallable,
+        'schema': schema,
       };
 }
 

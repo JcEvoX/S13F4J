@@ -98,8 +98,21 @@ class SqliteNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<void> move(List<String> ids, String? targetFolderId) =>
-      _dao.moveTo(ids, targetFolderId);
+  Future<void> move(List<String> ids, String? targetFolderId) async {
+    if (targetFolderId != null) {
+      // 目标自身或其祖先链上出现被移动的文件夹 → 会形成环。
+      final moving = ids.toSet();
+      String? cursor = targetFolderId;
+      final seen = <String>{};
+      while (cursor != null && seen.add(cursor)) {
+        if (moving.contains(cursor)) {
+          throw const NotesException('E-CYCLE', '不能把文件夹移动到自身或后代');
+        }
+        cursor = (await _dao.nodeById(cursor))?.parentId;
+      }
+    }
+    await _dao.moveTo(ids, targetFolderId);
+  }
 
   @override
   Future<void> reorder(String? folderId, List<String> orderedIds) async {
@@ -177,7 +190,11 @@ class SqliteNotesRepository implements NotesRepository {
   }
 
   @override
-  Future<List<NotePadNode>> search(String keyword) => _dao.search(keyword);
+  Future<List<NotePadNode>> search(String keyword) async {
+    final query = keyword.trim();
+    if (query.isEmpty) return const [];
+    return _dao.search(query);
+  }
 
   @override
   Future<List<NotePadNode>> recent({int limit = 50}) =>

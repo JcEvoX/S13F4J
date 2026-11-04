@@ -12,6 +12,10 @@ abstract class Capability {
   String get description;
   IconData get icon;
 
+  /// 该能力持有数据的命名空间 id（或前缀）；无持久数据时为 null。
+  /// 与 [PluginManifest.namespace] 对应，供宿主把能力入口接到注册表。
+  String? get namespaceId => null;
+
   /// 从宿主 UI 打开该能力（如新建笔记、浏览文件）。
   Future<void> launch(BuildContext context, PluginManifest manifest);
 }

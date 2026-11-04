@@ -147,6 +147,7 @@ class ProjectStore {
           pluginId: 'builtin.files',
           root: project.rootPath,
           displayName: project.displayName,
+          trashDriver: false,
           createdAt: project.importedAt,
         ),
       );
@@ -452,6 +453,7 @@ class ProjectStore {
         pluginId: 'builtin.files',
         root: project.rootPath,
         displayName: project.displayName,
+        trashDriver: false,
         createdAt: project.importedAt,
       ),
     );
