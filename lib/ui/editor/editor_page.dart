@@ -417,7 +417,11 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         // 编辑器标题居中显示；嵌入标签时不要返回按钮。
         centerTitle: !widget.embedded,
         automaticallyImplyLeading: !widget.embedded,
-        title: Text(node.title.isEmpty ? '未命名' : node.title),
+        // 嵌入标签时标题已在标签条 / 顶栏显示，这里只留紧凑的状态与操作行。
+        toolbarHeight: widget.embedded ? 40 : null,
+        title: widget.embedded
+            ? null
+            : Text(node.title.isEmpty ? '未命名' : node.title),
         actions: [
           Center(
             child: Padding(

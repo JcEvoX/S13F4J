@@ -515,14 +515,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// 重命名：底部弹出输入框。
   Future<void> _rename(NotePadNode node) async {
-    final controller = TextEditingController(text: node.title);
     final title = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _RenameSheet(controller: controller, isFolder: node.isFolder),
+      builder: (ctx) =>
+          _RenameSheet(initialText: node.title, isFolder: node.isFolder),
     );
-    controller.dispose();
     if (!mounted || title == null || title.trim().isEmpty) return;
     final provider = context.read<NoteProvider>();
     await provider.renameNode(node.id, title.trim());
@@ -660,9 +659,9 @@ class _FolderCreateSheetState extends State<_FolderCreateSheet> {
 
 /// 重命名底部面板。
 class _RenameSheet extends StatefulWidget {
-  const _RenameSheet({required this.controller, required this.isFolder});
+  const _RenameSheet({required this.initialText, required this.isFolder});
 
-  final TextEditingController controller;
+  final String initialText;
   final bool isFolder;
 
   @override
@@ -670,6 +669,16 @@ class _RenameSheet extends StatefulWidget {
 }
 
 class _RenameSheetState extends State<_RenameSheet> {
+  // 控制器归面板自己管：面板退场动画期间输入框仍在使用它。
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -717,7 +726,7 @@ class _RenameSheetState extends State<_RenameSheet> {
               ),
               const SizedBox(height: 14),
               TextField(
-                controller: widget.controller,
+                controller: _controller,
                 autofocus: true,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
@@ -750,7 +759,7 @@ class _RenameSheetState extends State<_RenameSheet> {
   }
 
   void _submit() {
-    final title = widget.controller.text.trim();
+    final title = _controller.text.trim();
     if (title.isEmpty) return;
     Navigator.pop(context, title);
   }

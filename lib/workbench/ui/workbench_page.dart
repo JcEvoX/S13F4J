@@ -201,36 +201,14 @@ class _PageUi implements WorkbenchUi {
   }) async {
     final context = _context;
     if (context == null) return null;
-    final controller = TextEditingController(text: initialValue);
-    controller.selection =
-        TextSelection(baseOffset: 0, extentOffset: initialValue.length);
-    try {
-      return await showDialog<String>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title),
-          content: TextField(
-            key: const ValueKey('prompt-input'),
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(hintText: hint),
-            onSubmitted: (value) => Navigator.pop(ctx, value),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, controller.text),
-              child: const Text('确定'),
-            ),
-          ],
-        ),
-      );
-    } finally {
-      controller.dispose();
-    }
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => _PromptDialog(
+        title: title,
+        initialValue: initialValue,
+        hint: hint,
+      ),
+    );
   }
 
   @override
@@ -328,6 +306,61 @@ class _PageUi implements WorkbenchUi {
       workbench: _state._wb,
       quickOpen: _state._quickOpen,
       initialText: initialText,
+    );
+  }
+}
+
+/// 输入框对话框：控制器随对话框的 State 释放，避免关闭动画期间使用已释放的控制器。
+class _PromptDialog extends StatefulWidget {
+  const _PromptDialog({
+    required this.title,
+    required this.initialValue,
+    this.hint,
+  });
+
+  final String title;
+  final String initialValue;
+  final String? hint;
+
+  @override
+  State<_PromptDialog> createState() => _PromptDialogState();
+}
+
+class _PromptDialogState extends State<_PromptDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialValue,
+  )..selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: widget.initialValue.length,
+    );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        key: const ValueKey('prompt-input'),
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(hintText: widget.hint),
+        onSubmitted: (value) => Navigator.pop(context, value),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _controller.text),
+          child: const Text('确定'),
+        ),
+      ],
     );
   }
 }

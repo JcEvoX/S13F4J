@@ -194,6 +194,9 @@ class ExtensionHost extends ChangeNotifier {
   }
 
   Future<void> _doActivate(_Entry entry) async {
+    // 激活常由 Widget 的 initState（如会话恢复的标签）触发；先让出一个微任务，
+    // 保证扩展注册 / 通知不会发生在构建阶段内（否则 setState during build）。
+    await Future<void>.value();
     if (entry.active) return;
     final factory = _factories[entry.info.capability];
     if (factory == null) {
