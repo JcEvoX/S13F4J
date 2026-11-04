@@ -38,7 +38,9 @@ void main() {
       expect(file.parent.join('d.md').toString(), 'notes:/a/b/d.md');
       expect(ResourceUri('notes').parent.isRoot, isTrue);
       expect(ResourceUri.parse('notes:/a').contains(file), isTrue);
-      expect(ResourceUri.parse('notes:/a').contains(ResourceUri.parse('notes:/ab')),
+      expect(
+          ResourceUri.parse('notes:/a')
+              .contains(ResourceUri.parse('notes:/ab')),
           isFalse);
       expect(ResourceUri('notes').contains(file), isTrue);
       expect(ResourceUri('files.p').contains(file), isFalse);

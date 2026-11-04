@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../base/disposable.dart';
 import '../base/resource_uri.dart';
 
-enum FileType { file, directory }
+enum ResourceType { file, directory }
 
 class FileStat {
   const FileStat({
@@ -14,13 +14,13 @@ class FileStat {
     this.mtime = 0,
   });
 
-  final FileType type;
+  final ResourceType type;
   final int size;
 
   /// 最近修改时间（毫秒）；未知为 0。
   final int mtime;
 
-  bool get isDirectory => type == FileType.directory;
+  bool get isDirectory => type == ResourceType.directory;
 }
 
 class DirEntry {
@@ -32,11 +32,11 @@ class DirEntry {
   });
 
   final String name;
-  final FileType type;
+  final ResourceType type;
   final int size;
   final int mtime;
 
-  bool get isDirectory => type == FileType.directory;
+  bool get isDirectory => type == ResourceType.directory;
 }
 
 /// 文件系统错误，沿用架构文档第 9 节的错误码。
@@ -63,6 +63,9 @@ abstract class FileSystemProvider {
   String get label;
 
   bool get readOnly => false;
+
+  /// 删除是否进入可恢复的回收站（决定确认框的措辞）。
+  bool get deleteGoesToTrash => false;
 
   /// 标签 / 面包屑里显示的名称，默认是最后一段。
   String displayName(ResourceUri uri) => uri.isRoot ? label : uri.basename;
@@ -131,8 +134,7 @@ class FileSystemRegistry extends ChangeNotifier {
       throw StateError('文件系统已注册: ${provider.scheme}');
     }
     _providers[provider.scheme] = provider;
-    _subscriptions[provider.scheme] =
-        provider.onDidChange.listen(_changes.add);
+    _subscriptions[provider.scheme] = provider.onDidChange.listen(_changes.add);
     notifyListeners();
     return toDisposable(() {
       if (_providers[provider.scheme] != provider) return;

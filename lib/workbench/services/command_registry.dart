@@ -32,9 +32,7 @@ class CommandNotFoundError implements Exception {
   final bool declared;
 
   @override
-  String toString() => declared
-      ? '命令 "$id" 已声明但尚未实现（能力未提供处理函数）'
-      : '未知命令: $id';
+  String toString() => declared ? '命令 "$id" 已声明但尚未实现（能力未提供处理函数）' : '未知命令: $id';
 }
 
 /// 命令处理函数注册表。元数据（标题 / 分类 / when）在 ContributionRegistry。

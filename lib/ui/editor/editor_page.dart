@@ -14,10 +14,14 @@ import '../preview/markdown_toolbar.dart';
 /// 支持 Markdown 语法编辑、二次工具栏插入符号、实时字数统计、
 /// 撤销/重做，以及与「预览」页的切换。
 class EditorPage extends StatefulWidget {
-  const EditorPage({super.key, required this.nodeId});
+  const EditorPage({super.key, required this.nodeId, this.embedded = false});
 
   /// 编辑的文章节点 id。
   final String nodeId;
+
+  /// 嵌入工作台标签时为 true：不带返回按钮，也不拦截系统返回
+  /// （关闭标签时由 dispose 兜底落盘）。
+  final bool embedded;
 
   @override
   State<EditorPage> createState() => _EditorPageState();
@@ -371,6 +375,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
         ? null
         : settings.editorFontFamily;
 
+    final scaffold =
+        _buildScaffold(node, settings, fontSize, fontFamily);
+    if (widget.embedded) return scaffold;
+
     return PopScope(
       // 返回前先把待保存内容落库，保证上一页（首页 / 最近编辑 / 搜索）
       // 拿到的是最新数据。无未保存内容时放行，保留系统返回手势。
@@ -394,81 +402,91 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           }
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          // 编辑器标题居中显示。
-          centerTitle: true,
-          title: Text(node.title.isEmpty ? '未命名' : node.title),
-          actions: [
+      child: scaffold,
+    );
+  }
+
+  Widget _buildScaffold(
+    NotePadNode node,
+    SettingsService settings,
+    double fontSize,
+    String? fontFamily,
+  ) {
+    return Scaffold(
+      appBar: AppBar(
+        // 编辑器标题居中显示；嵌入标签时不要返回按钮。
+        centerTitle: !widget.embedded,
+        automaticallyImplyLeading: !widget.embedded,
+        title: Text(node.title.isEmpty ? '未命名' : node.title),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                _saveStatus,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _saveStatus == '保存失败'
+                      ? Theme.of(context).colorScheme.error
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+          if (settings.showWordCount)
             Center(
               child: Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: Text(
-                  _saveStatus,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: _saveStatus == '保存失败'
-                        ? Theme.of(context).colorScheme.error
-                        : Colors.grey.shade600,
-                  ),
-                ),
+                child: Text('$_wordCount 字',
+                    style:
+                        TextStyle(color: Colors.grey.shade600, fontSize: 12)),
               ),
             ),
-            if (settings.showWordCount)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text('$_wordCount 字',
-                      style: TextStyle(
-                          color: Colors.grey.shade600, fontSize: 12)),
+          IconButton(
+            icon: const Icon(Icons.visibility_outlined),
+            tooltip: '预览',
+            onPressed: () async {
+              await _flushSave();
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PreviewPage(
+                    title: node.title,
+                    content: _controller.text,
+                  ),
                 ),
-              ),
-            IconButton(
-              icon: const Icon(Icons.visibility_outlined),
-              tooltip: '预览',
-              onPressed: () async {
-                await _flushSave();
-                if (!mounted) return;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PreviewPage(
-                      title: node.title,
-                      content: _controller.text,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focus,
-                  maxLines: null,
-                  keyboardType: TextInputType.multiline,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    height: 1.7,
-                    fontFamily: fontFamily,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: '开始书写，半角 # 表示标题…',
-                  ),
-                  onChanged: (_) => _onEditingChanged(),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: TextField(
+                controller: _controller,
+                focusNode: _focus,
+                maxLines: null,
+                keyboardType: TextInputType.multiline,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: 1.7,
+                  fontFamily: fontFamily,
                 ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: '开始书写，半角 # 表示标题…',
+                ),
+                onChanged: (_) => _onEditingChanged(),
               ),
             ),
-            // 双层工具栏：Core 常用符号。
-            MarkdownToolbar(onInsert: _insert),
-          ],
-        ),
+          ),
+          // 双层工具栏：Core 常用符号。
+          MarkdownToolbar(onInsert: _insert),
+        ],
       ),
     );
   }

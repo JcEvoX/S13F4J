@@ -120,7 +120,8 @@ class PluginManifest {
 
 /// 已安装插件（清单 + 运行时状态）。
 class InstalledPlugin {
-  InstalledPlugin({required this.manifest, this.enabled = true, this.downloadUrl});
+  InstalledPlugin(
+      {required this.manifest, this.enabled = true, this.downloadUrl});
 
   final PluginManifest manifest;
 

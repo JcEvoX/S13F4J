@@ -28,9 +28,9 @@ class MemoryFileSystemProvider extends FileSystemProvider {
   @override
   Future<FileStat> stat(ResourceUri uri) async {
     if (files.containsKey(uri.path)) {
-      return FileStat(type: FileType.file, size: files[uri.path]!.length);
+      return FileStat(type: ResourceType.file, size: files[uri.path]!.length);
     }
-    if (_isDir(uri.path)) return const FileStat(type: FileType.directory);
+    if (_isDir(uri.path)) return const FileStat(type: ResourceType.directory);
     throw FileSystemError('E-NOT-FOUND', '不存在', uri);
   }
 
@@ -40,22 +40,22 @@ class MemoryFileSystemProvider extends FileSystemProvider {
       throw FileSystemError('E-NOT-FOUND', '不存在', uri);
     }
     final prefix = uri.isRoot ? '/' : '${uri.path}/';
-    final names = <String, FileType>{};
+    final names = <String, ResourceType>{};
     for (final f in files.keys) {
       if (!f.startsWith(prefix)) continue;
       final rest = f.substring(prefix.length);
       final slash = rest.indexOf('/');
       if (slash < 0) {
-        names[rest] = FileType.file;
+        names[rest] = ResourceType.file;
       } else {
-        names[rest.substring(0, slash)] = FileType.directory;
+        names[rest.substring(0, slash)] = ResourceType.directory;
       }
     }
     for (final d in dirs) {
       if (!d.startsWith(prefix)) continue;
       final rest = d.substring(prefix.length);
       if (rest.isEmpty) continue;
-      names.putIfAbsent(rest.split('/').first, () => FileType.directory);
+      names.putIfAbsent(rest.split('/').first, () => ResourceType.directory);
     }
     return [
       for (final e in names.entries) DirEntry(name: e.key, type: e.value),

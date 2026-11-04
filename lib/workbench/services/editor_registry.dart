@@ -35,7 +35,8 @@ class EditorInput {
   }
 }
 
-typedef EditorBuilder = Widget Function(BuildContext context, EditorInput input);
+typedef EditorBuilder = Widget Function(
+    BuildContext context, EditorInput input);
 
 /// 编辑器 provider 注册表 + 按资源解析编辑器。
 class EditorRegistry extends ChangeNotifier {

@@ -48,8 +48,7 @@ class ResourceUri {
 
   bool get isRoot => path == '/';
 
-  List<String> get segments =>
-      isRoot ? const [] : path.substring(1).split('/');
+  List<String> get segments => isRoot ? const [] : path.substring(1).split('/');
 
   /// 最后一段（根返回空串）。
   String get basename => isRoot ? '' : segments.last;
@@ -74,7 +73,8 @@ class ResourceUri {
   ResourceUri join(String name) =>
       ResourceUri._(scheme, _normalize('$path/$name'));
 
-  ResourceUri withPath(String newPath) => ResourceUri._(scheme, _normalize(newPath));
+  ResourceUri withPath(String newPath) =>
+      ResourceUri._(scheme, _normalize(newPath));
 
   /// [other] 是否位于本资源之下（或相同）。
   bool contains(ResourceUri other) {

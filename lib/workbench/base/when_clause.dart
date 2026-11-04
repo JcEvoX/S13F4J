@@ -197,8 +197,7 @@ List<_Token> _tokenize(String input) {
       i++;
     } else {
       final start = i;
-      while (i < input.length &&
-          !' ()!=<>&|\'"'.contains(input[i])) {
+      while (i < input.length && !' ()!=<>&|\'"'.contains(input[i])) {
         i++;
       }
       if (i == start) throw FormatException('无法解析的字符 "$c": $input');

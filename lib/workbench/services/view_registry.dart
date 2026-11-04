@@ -3,7 +3,8 @@ import 'package:flutter/widgets.dart';
 import '../base/disposable.dart';
 import 'workbench.dart';
 
-typedef ViewBuilder = Widget Function(BuildContext context, Workbench workbench);
+typedef ViewBuilder = Widget Function(
+    BuildContext context, Workbench workbench);
 
 /// 视图内容注册表：manifest 声明视图（`views`），实现由能力在激活时注册。
 class ViewRegistry extends ChangeNotifier {

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:notepad/workbench/base/resource_uri.dart';
@@ -23,7 +21,8 @@ class _RecordingExtension extends HostExtension {
   @override
   Future<void> activate(ExtensionContext context) async {
     log.add('activate:${context.pluginId}');
-    context.registerCommand('demo.hello', (ctx) => 'hello ${ctx.args.join(',')}');
+    context.registerCommand(
+        'demo.hello', (ctx) => 'hello ${ctx.args.join(',')}');
     context.registerCommand('demo.hidden', (ctx) => null);
     context.setContext('demoActive', true);
     if (scheme != null) {
@@ -45,7 +44,10 @@ Map<String, Object?> _contributes() => {
           'command': 'demo.macro',
           'title': 'Macro',
           'run': [
-            {'command': 'demo.hello', 'args': ['x', 'y']},
+            {
+              'command': 'demo.hello',
+              'args': ['x', 'y']
+            },
           ],
         },
         {'command': 'demo.ghost', 'title': 'Ghost'},
@@ -116,8 +118,13 @@ void main() {
           'not a map',
         ],
       });
-      expect(parsed.commands.map((c) => c.command),
-          ['demo.hello', 'demo.macro', 'demo.ghost', 'demo.hidden', 'demo.loop']);
+      expect(parsed.commands.map((c) => c.command), [
+        'demo.hello',
+        'demo.macro',
+        'demo.ghost',
+        'demo.hidden',
+        'demo.loop'
+      ]);
       expect(parsed.commands.first.label, 'Demo: Hello');
       expect(parsed.commands[1].run.single.args, ['x', 'y']);
       expect(parsed.menus, hasLength(4));
@@ -205,8 +212,8 @@ void main() {
           ],
         }),
       );
-      expect(editors.resolve(ResourceUri.parse('other:/a.dart')),
-          'core.fallback');
+      expect(
+          editors.resolve(ResourceUri.parse('other:/a.dart')), 'core.fallback');
     });
 
     test('provider 重复注册报错，释放后可重新注册', () {
@@ -256,8 +263,8 @@ void main() {
       registry.register(_ReadOnlyProvider());
       await expectLater(
         registry.writeText(ResourceUri.parse('ro:/a'), 'x'),
-        throwsA(isA<FileSystemError>()
-            .having((e) => e.code, 'code', 'E-READONLY')),
+        throwsA(
+            isA<FileSystemError>().having((e) => e.code, 'code', 'E-READONLY')),
       );
       await expectLater(
         registry.delete(ResourceUri.parse('ro:/a')),
@@ -325,9 +332,13 @@ void main() {
     });
 
     test('onStartup / * 在同步时立即激活', () async {
-      await host.sync([plugin(events: const ['onStartup'])]);
+      await host.sync([
+        plugin(events: const ['onStartup'])
+      ]);
       expect(log, ['activate:demo']);
-      await host.sync([plugin(events: const ['onStartup'])]);
+      await host.sync([
+        plugin(events: const ['onStartup'])
+      ]);
       expect(log, ['activate:demo']);
     });
 
@@ -353,11 +364,13 @@ void main() {
       await host.sync([plugin()]);
       await expectLater(
         workbench.executeCommand('nope'),
-        throwsA(isA<CommandNotFoundError>().having((e) => e.declared, 'declared', false)),
+        throwsA(isA<CommandNotFoundError>()
+            .having((e) => e.declared, 'declared', false)),
       );
       await expectLater(
         workbench.executeCommand('demo.ghost'),
-        throwsA(isA<CommandNotFoundError>().having((e) => e.declared, 'declared', true)),
+        throwsA(isA<CommandNotFoundError>()
+            .having((e) => e.declared, 'declared', true)),
       );
     });
 
@@ -441,7 +454,7 @@ void main() {
 
     test('纯声明式插件（无工厂）立即视为已激活，宏可用', () async {
       await host.sync([
-        PluginInfo(
+        const PluginInfo(
           id: 'macro-only',
           capability: 'no.factory',
           enabled: true,
@@ -468,7 +481,9 @@ void main() {
         'demo.cap',
         () => _RecordingExtension(log, scheme: 'demo.p1'),
       );
-      await host.sync([plugin(events: const ['onResource:demo.*'])]);
+      await host.sync([
+        plugin(events: const ['onResource:demo.*'])
+      ]);
       expect(log, isEmpty);
       final text = await workbench.fileSystems
           .readText(ResourceUri.parse('demo.p1:/a.txt'));
@@ -480,9 +495,12 @@ void main() {
       expect(ExtensionHost.matchesEvent('onStartup', 'onStartup'), isTrue);
       expect(ExtensionHost.matchesEvent('*', 'onStartup'), isTrue);
       expect(ExtensionHost.matchesEvent('*', 'onCommand:x'), isFalse);
-      expect(ExtensionHost.matchesEvent('onCommand:a.*', 'onCommand:a.b'), isTrue);
-      expect(ExtensionHost.matchesEvent('onCommand:a.*', 'onCommand:b.a'), isFalse);
-      expect(ExtensionHost.matchesEvent('onResource:files', 'onResource:files.p'),
+      expect(
+          ExtensionHost.matchesEvent('onCommand:a.*', 'onCommand:a.b'), isTrue);
+      expect(ExtensionHost.matchesEvent('onCommand:a.*', 'onCommand:b.a'),
+          isFalse);
+      expect(
+          ExtensionHost.matchesEvent('onResource:files', 'onResource:files.p'),
           isFalse);
     });
 
@@ -529,7 +547,8 @@ void main() {
 
     test('打开同一资源复用标签；上下文键随活动标签更新', () async {
       final a = await workbench.openResource(ResourceUri.parse('mem:/a.md'));
-      final again = await workbench.openResource(ResourceUri.parse('mem:/a.md'));
+      final again =
+          await workbench.openResource(ResourceUri.parse('mem:/a.md'));
       expect(identical(a, again), isTrue);
       expect(workbench.tabs, hasLength(1));
 
@@ -699,8 +718,8 @@ void main() {
           '/docs/guide.md': '',
         },
       ));
-      workbench.workspaceFolderSource = () async =>
-          const [WorkspaceFolder(scheme: 'mem', name: 'mem')];
+      workbench.workspaceFolderSource =
+          () async => const [WorkspaceFolder(scheme: 'mem', name: 'mem')];
       await workbench.refreshWorkspace();
       quickOpen = QuickOpenService(workbench);
     });
@@ -714,7 +733,8 @@ void main() {
       final matches = await quickOpen.findFiles('main');
       expect(matches.first.uri.path, '/src/main.dart');
       final dart = await quickOpen.findFiles('dart');
-      expect(dart.map((m) => m.uri.basename), containsAll(['main.dart', 'strings.dart']));
+      expect(dart.map((m) => m.uri.basename),
+          containsAll(['main.dart', 'strings.dart']));
       expect(await quickOpen.findFiles('zzzz'), isEmpty);
     });
 
@@ -730,7 +750,8 @@ void main() {
       final provider = workbench.fileSystems.providerOf('mem')!;
       await provider.createFile(ResourceUri('mem'), 'fresh.txt');
       await Future<void>.delayed(Duration.zero);
-      expect((await quickOpen.findFiles('fresh')).single.uri.path, '/fresh.txt');
+      expect(
+          (await quickOpen.findFiles('fresh')).single.uri.path, '/fresh.txt');
     });
 
     test('命令搜索使用 分类: 标题 标签', () async {
@@ -763,7 +784,7 @@ class _ReadOnlyProvider extends FileSystemProvider {
   bool get readOnly => true;
   @override
   Future<FileStat> stat(ResourceUri uri) async =>
-      const FileStat(type: FileType.directory);
+      const FileStat(type: ResourceType.directory);
   @override
   Future<List<DirEntry>> readDirectory(ResourceUri uri) async => const [];
   @override

@@ -41,9 +41,8 @@ class CommandContribution {
   /// 声明式宏：没有处理函数时按顺序执行这些步骤。
   final List<CommandStep> run;
 
-  String get label => category == null || category!.isEmpty
-      ? title
-      : '$category: $title';
+  String get label =>
+      category == null || category!.isEmpty ? title : '$category: $title';
 }
 
 class MenuContribution {
@@ -409,8 +408,7 @@ bool globMatches(String pattern, String name) =>
 
 final Map<String, RegExp> _globCache = {};
 
-RegExp _globToRegExp(String pattern) =>
-    _globCache.putIfAbsent(pattern, () {
+RegExp _globToRegExp(String pattern) => _globCache.putIfAbsent(pattern, () {
       final buffer = StringBuffer('^');
       var inGroup = false;
       for (final rune in pattern.runes) {

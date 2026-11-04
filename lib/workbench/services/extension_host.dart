@@ -169,7 +169,8 @@ class ExtensionHost extends ChangeNotifier {
     }
     for (final info in desired.values) {
       if (_entries.containsKey(info.id)) continue;
-      final contributions = PluginContributions.parse(info.id, info.contributes);
+      final contributions =
+          PluginContributions.parse(info.id, info.contributes);
       _entries[info.id] = _Entry(info, contributions);
       workbench.contributions.setPlugin(info.id, contributions);
     }

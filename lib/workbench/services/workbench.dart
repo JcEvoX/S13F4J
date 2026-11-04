@@ -180,6 +180,11 @@ class Workbench extends ChangeNotifier {
 
   // ── 命令 ──────────────────────────────────────────────
 
+  /// 把异常转成面向用户的一句话并通过 UI 提示。
+  void reportError(Object error) {
+    ui.showMessage(describeError(error), isError: true);
+  }
+
   /// 执行命令：先找处理函数，找不到就触发 `onCommand:<id>` 激活，
   /// 仍没有则回退到 manifest 声明的 `run` 宏。
   Future<Object?> executeCommand(
@@ -222,7 +227,8 @@ class Workbench extends ChangeNotifier {
       for (final c in contributions.commands)
         if (!hidden.contains(c.command) &&
             contextKeys.evaluate(c.when) &&
-            (commands.hasHandler(c.command) || c.run.isNotEmpty ||
+            (commands.hasHandler(c.command) ||
+                c.run.isNotEmpty ||
                 extensionHost?.canActivateFor('onCommand:${c.command}') ==
                     true))
           c,
@@ -250,8 +256,10 @@ class Workbench extends ChangeNotifier {
 
   List<WorkspaceFolder> get workspaceFolders => _folders;
 
-  List<WorkspaceFolder> get activeFolders =>
-      [for (final f in _folders) if (f.isActive) f];
+  List<WorkspaceFolder> get activeFolders => [
+        for (final f in _folders)
+          if (f.isActive) f
+      ];
 
   Future<void> refreshWorkspace() async {
     final source = workspaceFolderSource;
@@ -567,4 +575,11 @@ class Workbench extends ChangeNotifier {
     views.dispose();
     super.dispose();
   }
+}
+
+/// 面向用户的错误文案。
+String describeError(Object error) {
+  if (error is FileSystemError) return error.message;
+  if (error is CommandNotFoundError) return error.toString();
+  return '$error';
 }
