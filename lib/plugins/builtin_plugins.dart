@@ -22,6 +22,45 @@ PluginManifest builtinNotesPlugin() => const PluginManifest(
       author: 'JcEvoX',
       namespace: 'notes',
       uninstallable: true,
+      activationEvents: [
+        'onResource:notes',
+        'onEditor:notes.markdown',
+        'onCommand:notes.*',
+      ],
+      contributes: {
+        'commands': [
+          {
+            'command': 'notes.newNote',
+            'title': '新建笔记',
+            'category': '笔记',
+            'icon': 'note_alt',
+          },
+          {
+            'command': 'notes.preview',
+            'title': '预览笔记',
+            'category': '笔记',
+            'when': 'resourceScheme == notes',
+          },
+        ],
+        'menus': {
+          'commandPalette': [
+            {'command': 'notes.preview', 'when': 'resourceScheme == notes'},
+          ],
+          'editor/title': [
+            {'command': 'notes.preview', 'when': 'resourceScheme == notes'},
+          ],
+        },
+        'editors': [
+          {
+            'viewType': 'notes.markdown',
+            'displayName': 'Markdown 笔记',
+            'priority': 'default',
+            'selector': [
+              {'scheme': 'notes', 'filenamePattern': '*.md'},
+            ],
+          },
+        ],
+      },
     );
 
 PluginManifest builtinFileBrowserPlugin() => const PluginManifest(
@@ -35,6 +74,67 @@ PluginManifest builtinFileBrowserPlugin() => const PluginManifest(
       author: 'JcEvoX',
       namespace: 'files',
       uninstallable: true,
+      activationEvents: ['onResource:files.*', 'onCommand:files.*'],
+      contributes: {
+        'commands': [
+          {
+            'command': 'files.importProject',
+            'title': '导入项目…',
+            'category': '文件',
+            'icon': 'folder_open',
+          },
+          {
+            'command': 'files.openFile',
+            'title': '打开外部文件（只读）…',
+            'category': '文件',
+          },
+          {
+            'command': 'files.manageProjects',
+            'title': '管理导入的项目',
+            'category': '文件',
+          },
+          {
+            'command': 'files.updateProject',
+            'title': '更新项目…',
+            'category': '文件',
+          },
+          {
+            'command': 'files.removeProject',
+            'title': '移除项目…',
+            'category': '文件',
+          },
+        ],
+        'menus': {
+          'commandPalette': [
+            {
+              'command': 'files.updateProject',
+              'when':
+                  'explorerResourceFamily == files && explorerResourceIsRoot',
+            },
+            {
+              'command': 'files.removeProject',
+              'when':
+                  'explorerResourceFamily == files && explorerResourceIsRoot',
+            },
+          ],
+          'explorer/context': [
+            {
+              'command': 'files.updateProject',
+              'when':
+                  'explorerResourceFamily == files && explorerResourceIsRoot',
+              'group': '3_project',
+              'order': 1,
+            },
+            {
+              'command': 'files.removeProject',
+              'when':
+                  'explorerResourceFamily == files && explorerResourceIsRoot',
+              'group': '3_project',
+              'order': 2,
+            },
+          ],
+        },
+      },
     );
 
 /// 注册宿主内置能力（应用启动时调用一次）。
