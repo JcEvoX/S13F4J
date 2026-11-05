@@ -111,6 +111,9 @@ flowchart TB
 - `core/storage` 只定义契约与受限视图，不含具体插件逻辑。
 - 能力实现可以依赖 `TrashCenter` / `NamespaceBackupCenter` 的**接口**，不得自行实现搬运与打包。
 
+- `workbench` 不得被 `plugins/` 依赖；插件 manifest 的 `contributes` 只作为数据保存，由 `workbench/` 解析（见 [workbench.md](./workbench.md)）。
+- 工作台里的能力实现（`workbench/extensions`）只能经 `FileSystemProvider` 向外暴露数据；`ui` 与 `services` 不得依赖具体能力。
+
 ### 2.2 模块职责
 
 | 模块 | 职责 | 关键约束 |
@@ -131,6 +134,10 @@ flowchart TB
 | `ExternalOpenService` | 接收系统外部打开请求；解析 URI / 临时文件；管理只读会话 | 待排期；当前仅支持应用内文件选择器 |
 | `ProjectStore` | 扫描源目录、预览、拷贝到 staging、注册项目命名空间 | 只拷贝，不改源目录；跳过符号链接；失败清理 staging |
 | `FilesCapability` | 文件阅读能力的 `StorageCapability` 实现 | 每个项目一个实例；`TrashPolicy = null`；备份按项目命名空间 |
+| `Workbench` | 标签 / 活动编辑器 / 侧栏 / 工作区文件夹 / 会话 / 命令执行入口 | 不依赖具体能力；执行未注册命令先触发 `onCommand` 激活 |
+| `ExtensionHost` | 按插件启停同步贡献、按激活事件懒激活、停用即释放 | 激活失败隔离并记录，不拖垮宿主；注册全部可回收 |
+| `FileSystemRegistry` / `FileSystemProvider` | 命名空间的统一资源视图（`notes`、`files.<id>`） | 默认只读；写操作需 provider 显式实现 |
+| `ContributionRegistry` | 汇总插件 `contributes`（命令 / 菜单 / 视图 / 编辑器 / 状态栏） | 随插件启停整体增删；坏条目被跳过 |
 
 ---
 
@@ -1134,6 +1141,7 @@ lib/
 - 项目导入：`ProjectImporter` + `ProjectStore` 合并为 [project_store.dart](file:///workspace/lib/services/project_store.dart)；`data/files/` 目录不存在。
 - 迁移：[legacy_migrator.dart](file:///workspace/lib/data/migration/legacy_migrator.dart)、[legacy_sqlite_source.dart](file:///workspace/lib/data/migration/legacy_sqlite_source.dart)；`legacy_json_importer.dart` 未单独拆出。
 - 注册表：[namespace_registry.dart](file:///workspace/lib/services/namespace_registry.dart)；能力描述在 [storage_capability.dart](file:///workspace/lib/core/storage/storage_capability.dart)，notes 能力在 [notes_capability.dart](file:///workspace/lib/data/vault/notes_capability.dart)。
+- 工作台能力底座：[lib/workbench](file:///workspace/lib/workbench)（`base` / `services` / `ui` / `extensions` / `bootstrap`），设计见 [workbench.md](./workbench.md)；插件系统开启时 [main.dart](file:///workspace/lib/main.dart) 以 `WorkbenchPage` 为根界面。
 - 插件：[plugin_model.dart](file:///workspace/lib/plugins/plugin_model.dart)（`namespace` / `uninstallable` / `schema`）、[plugin_manager.dart](file:///workspace/lib/plugins/plugin_manager.dart)；笔记停用后的首页为 [capability_home_page.dart](file:///workspace/lib/ui/home/capability_home_page.dart)。
 - 未实现：`ExternalOpenService`（待排期）、`external_open_service.dart`。
 - sqlite 回退实现保留（[sqlite_notes_repository.dart](file:///workspace/lib/data/sqlite_notes_repository.dart) + `note_dao.dart` + `app_database.dart`），与文件实现共用 `test/repository_contract_test.dart`。

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/project_store.dart';
 import '../../state/note_provider.dart';
+import '../storage_access_dialog.dart';
 import 'project_browse_page.dart';
 import 'read_only_file_page.dart';
 
@@ -73,6 +74,9 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
   }
 
   Future<void> _importProject() async {
+    if (!await ensureStorageAccessWithDialog(context, purpose: '导入文件夹')) {
+      return;
+    }
     final source = await FilePicker.platform.getDirectoryPath(
       dialogTitle: '选择要导入的文件夹',
     );
@@ -117,6 +121,9 @@ class _FileBrowserPageState extends State<FileBrowserPage> {
   }
 
   Future<void> _updateProject(FileProject project, {bool relocate = false}) async {
+    if (!await ensureStorageAccessWithDialog(context, purpose: '读取新的来源目录')) {
+      return;
+    }
     final source = await FilePicker.platform.getDirectoryPath(
       dialogTitle: relocate ? '选择项目的新位置' : '选择项目的新来源目录',
     );

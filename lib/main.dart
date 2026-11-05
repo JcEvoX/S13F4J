@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/error_surface.dart';
 import 'data/migration/legacy_migrator.dart';
 import 'data/notes_repository.dart';
 import 'data/sqlite_notes_repository.dart';
@@ -17,9 +19,14 @@ import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'ui/home/capability_home_page.dart';
 import 'ui/home/home_page.dart';
+import 'workbench/bootstrap.dart';
+import 'workbench/services/quick_open.dart';
+import 'workbench/services/workbench.dart';
+import 'workbench/ui/workbench_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorSurface();
   // 初始化插件系统：注册宿主能力 + 注册内置插件（笔记 / 文件系统）。
   registerBuiltinCapabilities();
   await PluginManager.instance.init();
@@ -31,20 +38,29 @@ Future<void> main() async {
   // 数据后端：默认文件化 vault；失败回退 sqlite。
   final settings = await SettingsService.instance;
   final storagePaths = await StoragePaths.resolve();
-  final repository = await _openRepository(settings, storagePaths);
+  final opened = await _openRepository(settings, storagePaths);
+  final repository = opened.repository;
   // 启动周期自动备份（应用运行期间）。
   AutoBackupService.instance
     ..attach(repository)
     ..start();
+  // 工作台能力底座：命令 / 贡献点 / 扩展宿主；插件系统开启时作为根界面。
+  final workbenchRuntime = await createWorkbenchRuntime(
+    repository: repository,
+    plugins: PluginManager.instance,
+    vaultStore: opened.store,
+  );
   runApp(
     NotePadApp(
       themeController: themeController,
       repository: repository,
+      workbench: workbenchRuntime,
+      pluginSystemEnabled: settings.pluginSystemEnabled,
     ),
   );
 }
 
-Future<NotesRepository> _openRepository(
+Future<({NotesRepository repository, VaultStore? store})> _openRepository(
   SettingsService settings,
   StoragePaths paths,
 ) async {
@@ -52,7 +68,7 @@ Future<NotesRepository> _openRepository(
     debugPrint('[Bootstrap] 使用 sqlite 后端');
     final repository = SqliteNotesRepository();
     await repository.init();
-    return repository;
+    return (repository: repository, store: null);
   }
 
   try {
@@ -65,7 +81,8 @@ Future<NotesRepository> _openRepository(
       vaultPath: paths.vaultRoot,
       dbPath: paths.legacyDbPath,
     ).migrateIfNeeded();
-    debugPrint('[Bootstrap] 迁移结果: ${migration.status} ${migration.message ?? ''}');
+    debugPrint(
+        '[Bootstrap] 迁移结果: ${migration.status} ${migration.message ?? ''}');
     if (migration.status == 'failed') {
       throw StateError(migration.message ?? '旧库迁移失败');
     }
@@ -88,12 +105,12 @@ Future<NotesRepository> _openRepository(
       }
     };
     debugPrint('[Bootstrap] 使用文件后端: ${paths.vaultRoot}');
-    return repository;
+    return (repository: repository, store: store);
   } catch (e) {
     debugPrint('[Bootstrap] 文件后端不可用，回退 sqlite: $e');
     final repository = SqliteNotesRepository();
     await repository.init();
-    return repository;
+    return (repository: repository, store: null);
   }
 }
 
@@ -102,10 +119,14 @@ class NotePadApp extends StatelessWidget {
     super.key,
     required this.themeController,
     required this.repository,
+    required this.workbench,
+    required this.pluginSystemEnabled,
   });
 
   final ThemeController themeController;
   final NotesRepository repository;
+  final WorkbenchRuntime workbench;
+  final ValueListenable<bool> pluginSystemEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -115,14 +136,18 @@ class NotePadApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => NoteProvider(repository: repository),
         ),
+        ChangeNotifierProvider<Workbench>.value(value: workbench.workbench),
+        Provider<QuickOpenService>.value(value: workbench.quickOpen),
       ],
-      child: const _Root(),
+      child: _Root(pluginSystemEnabled: pluginSystemEnabled),
     );
   }
 }
 
 class _Root extends StatelessWidget {
-  const _Root();
+  const _Root({required this.pluginSystemEnabled});
+
+  final ValueListenable<bool> pluginSystemEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -133,12 +158,21 @@ class _Root extends StatelessWidget {
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: themeController.themeMode,
-      home: ListenableBuilder(
-        listenable: PluginManager.instance,
-        builder: (context, _) {
-          final notes = PluginManager.instance.byId('builtin.notes');
-          final notesEnabled = notes?.enabled ?? true;
-          return notesEnabled ? const HomePage() : const CapabilityHomePage();
+      // 插件系统关闭：笔记形态；开启：工作台形态（笔记是其中一个可停用的能力）。
+      home: ValueListenableBuilder<bool>(
+        valueListenable: pluginSystemEnabled,
+        builder: (context, ideMode, _) {
+          if (ideMode) return const WorkbenchPage();
+          return ListenableBuilder(
+            listenable: PluginManager.instance,
+            builder: (context, _) {
+              final notes = PluginManager.instance.byId('builtin.notes');
+              final notesEnabled = notes?.enabled ?? true;
+              return notesEnabled
+                  ? const HomePage()
+                  : const CapabilityHomePage();
+            },
+          );
         },
       ),
     );

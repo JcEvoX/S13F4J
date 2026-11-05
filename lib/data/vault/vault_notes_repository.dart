@@ -254,7 +254,7 @@ class VaultNotesRepository implements NotesRepository {
   Future<List<NotePadNode>> allFolders() async {
     await _ensureInit();
     final out = <NotePadNode>[];
-    for (final record in _tree.nodes) {
+    for (final record in List.of(_tree.nodes)) {
       if (!record.isFolder) continue;
       if (!await _store.exists(record.path)) continue;
       out.add(record.toNode(parentId: _parentIdOf(record)));
@@ -684,7 +684,8 @@ class VaultNotesRepository implements NotesRepository {
     final query = keyword.trim().toLowerCase();
     if (query.isEmpty) return const [];
     final out = <NotePadNode>[];
-    for (final record in _tree.nodes) {
+    // 逐项 await 期间其它操作可能增删节点：遍历快照，避免 ConcurrentModificationError。
+    for (final record in List.of(_tree.nodes)) {
       if (!await _store.exists(record.path)) continue;
       final title = FilenamePolicy.titleOfPath(record.path);
       if (record.isFolder) {
@@ -717,7 +718,7 @@ class VaultNotesRepository implements NotesRepository {
   Future<List<NotePadNode>> recent({int limit = 50}) async {
     await _ensureInit();
     final notes = <VaultNodeRecord>[];
-    for (final record in _tree.nodes) {
+    for (final record in List.of(_tree.nodes)) {
       if (!record.isFolder && await _store.exists(record.path)) {
         notes.add(record);
       }
@@ -749,7 +750,7 @@ class VaultNotesRepository implements NotesRepository {
     var articles = 0;
     var words = 0;
     var lastEdited = 0;
-    for (final record in _tree.nodes) {
+    for (final record in List.of(_tree.nodes)) {
       if (!await _store.exists(record.path)) continue;
       if (record.isFolder) {
         folders++;

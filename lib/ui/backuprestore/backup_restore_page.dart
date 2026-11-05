@@ -6,6 +6,7 @@ import '../../models/note.dart';
 import '../../services/backup_service.dart';
 import '../../services/settings_service.dart';
 import '../../state/note_provider.dart';
+import '../storage_access_dialog.dart';
 import '../webdav/webdav_page.dart';
 import 'namespace_backup_page.dart';
 
@@ -159,6 +160,9 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   /// 选择本地备份文件夹。
   Future<void> _pickFolder(SettingsService s) async {
     debugPrint('[BackupRestore] 选择备份文件夹');
+    if (!await ensureStorageAccessWithDialog(context, purpose: '写入备份文件夹')) {
+      return;
+    }
     final dir = await BackupService.pickBackupDirectory();
     if (dir == null) {
       debugPrint('[BackupRestore] 选择已取消');
@@ -173,6 +177,10 @@ class _BackupRestorePageState extends State<BackupRestorePage> {
   /// 手动备份到本地（选择目录写入 JSON）。
   Future<void> _backupToLocal(SettingsService s) async {
     if (_busy) return;
+    if (!await ensureStorageAccessWithDialog(context, purpose: '写入备份文件夹')) {
+      return;
+    }
+    if (!mounted) return;
     setState(() => _busy = true);
     debugPrint('[BackupRestore] 备份到本地开始');
     try {

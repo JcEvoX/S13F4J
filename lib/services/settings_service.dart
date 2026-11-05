@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// 主题模式：跟随系统 / 浅色 / 深色。
@@ -14,7 +15,13 @@ enum StorageBackend { files, sqlite }
 /// 跨平台统一使用 shared_preferences 实现键值存储，
 /// Android / iOS / 桌面端行为一致。
 class SettingsService {
-  SettingsService._(this._prefs);
+  SettingsService._(this._prefs)
+      : pluginSystemEnabled = ValueNotifier<bool>(
+          _prefs.getBool(_kEnablePluginSystem) ?? false,
+        );
+
+  /// 插件系统开关的可监听视图：根界面据此在「笔记形态」与「工作台形态」间切换。
+  final ValueNotifier<bool> pluginSystemEnabled;
 
   final SharedPreferences _prefs;
 
@@ -63,7 +70,8 @@ class SettingsService {
       _prefs.setDouble(_kEditorFontSize, v);
 
   /// 编辑器字体族（'system' 表示跟随系统）。
-  String get editorFontFamily => _prefs.getString(_kEditorFontFamily) ?? 'system';
+  String get editorFontFamily =>
+      _prefs.getString(_kEditorFontFamily) ?? 'system';
 
   Future<void> setEditorFontFamily(String v) =>
       _prefs.setString(_kEditorFontFamily, v);
@@ -78,7 +86,8 @@ class SettingsService {
   Future<void> setScaleEditorFont(bool v) =>
       _prefs.setBool(_kScaleEditorFont, v);
 
-  bool get autoFirstLineIndent => _prefs.getBool(_kAutoFirstLineIndent) ?? false;
+  bool get autoFirstLineIndent =>
+      _prefs.getBool(_kAutoFirstLineIndent) ?? false;
 
   Future<void> setAutoFirstLineIndent(bool v) =>
       _prefs.setBool(_kAutoFirstLineIndent, v);
@@ -91,7 +100,8 @@ class SettingsService {
     );
   }
 
-  Future<void> setStartPage(StartPage v) => _prefs.setString(_kStartPage, v.name);
+  Future<void> setStartPage(StartPage v) =>
+      _prefs.setString(_kStartPage, v.name);
 
   String? get wallpaper => _prefs.getString(_kWallpaper);
 
@@ -151,8 +161,10 @@ class SettingsService {
   /// 开启后在设置中显示「插件中心」，可热插拔插件。
   bool get enablePluginSystem => _prefs.getBool(_kEnablePluginSystem) ?? false;
 
-  Future<void> setEnablePluginSystem(bool v) =>
-      _prefs.setBool(_kEnablePluginSystem, v);
+  Future<void> setEnablePluginSystem(bool v) async {
+    await _prefs.setBool(_kEnablePluginSystem, v);
+    pluginSystemEnabled.value = v;
+  }
 
   /// 插件市场源（GitHub 插件仓库 owner/repo）。
   String get pluginSource =>
