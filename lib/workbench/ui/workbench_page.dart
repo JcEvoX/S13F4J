@@ -29,6 +29,7 @@ class _WorkbenchPageState extends State<WorkbenchPage> {
   late final Workbench _wb;
   late final QuickOpenService _quickOpen;
   late final _PageUi _ui;
+  String? _lastActiveTabId;
 
   @override
   void initState() {
@@ -37,6 +38,7 @@ class _WorkbenchPageState extends State<WorkbenchPage> {
     _quickOpen = context.read<QuickOpenService>();
     _ui = _PageUi(this);
     _wb.ui = _ui;
+    _wb.addListener(_closeDrawerOnNewEditor);
     unawaited(_boot());
   }
 
@@ -48,8 +50,23 @@ class _WorkbenchPageState extends State<WorkbenchPage> {
     }
   }
 
+  /// 窄屏下抽屉盖在编辑区上：新标签被激活（新建 / 打开 / 命令面板）后收起抽屉。
+  void _closeDrawerOnNewEditor() {
+    final id = _wb.activeTab?.id;
+    if (id == _lastActiveTabId) return;
+    _lastActiveTabId = id;
+    if (id == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final scaffold = _scaffoldKey.currentState;
+      if (mounted && scaffold != null && scaffold.isDrawerOpen) {
+        scaffold.closeDrawer();
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _wb.removeListener(_closeDrawerOnNewEditor);
     if (identical(_wb.ui, _ui)) _wb.ui = HeadlessWorkbenchUi();
     super.dispose();
   }

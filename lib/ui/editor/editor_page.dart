@@ -74,13 +74,27 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _load();
   }
 
+  /// 在帧结束后更新「当前编辑文章」：initState / dispose 处于构建与卸载阶段，
+  /// 此时通知 Provider 会触发 setState during build / 树已锁定的断言。
+  static void _setEditingAfterFrame(
+    NoteProvider provider,
+    String? id, {
+    String? onlyIf,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (onlyIf != null && provider.currentEditingNodeId != onlyIf) return;
+      provider.setCurrentEditingNodeId(id);
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
   Future<void> _load() async {
     debugPrint('[Editor] 打开 nodeId=${widget.nodeId}');
     final provider = context.read<NoteProvider>();
     _provider = provider;
     // 记录当前正在编辑的文章，供首页「定位正在编辑的文章」使用。
     // 嵌入工作台标签时同时存在多个编辑器，「当前编辑文章」只对首页定位有意义。
-    if (!widget.embedded) provider.setCurrentEditingNodeId(widget.nodeId);
+    if (!widget.embedded) _setEditingAfterFrame(provider, widget.nodeId);
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
     var body = node?.content ?? '';
@@ -352,7 +366,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _saveTimer = null;
     if (_dirty) unawaited(_save());
     // 离开编辑器后清除「当前编辑文章」，避免首页定位到已关闭的文章。
-    if (!widget.embedded) _provider?.setCurrentEditingNodeId(null);
+    final provider = _provider;
+    if (!widget.embedded && provider != null) {
+      _setEditingAfterFrame(provider, null, onlyIf: widget.nodeId);
+    }
     _controller.dispose();
     _focus.dispose();
     super.dispose();

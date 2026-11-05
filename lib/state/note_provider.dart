@@ -56,9 +56,17 @@ class NoteProvider extends ChangeNotifier {
   String? _currentEditingNodeId;
   String? get currentEditingNodeId => _currentEditingNodeId;
 
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
   /// 记录当前正在编辑的文章（编辑器页打开/关闭时调用）。
   void setCurrentEditingNodeId(String? id) {
-    if (_currentEditingNodeId == id) return;
+    if (_disposed || _currentEditingNodeId == id) return;
     _currentEditingNodeId = id;
     debugPrint('[NoteProvider] 当前编辑文章: $id');
     notifyListeners();

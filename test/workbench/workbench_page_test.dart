@@ -3,7 +3,10 @@ import 'dart:math' as math;
 
 import 'package:flutter/services.dart';
 import 'package:notepad/main.dart';
+import 'package:notepad/data/vault/vault_store.dart';
 import 'package:notepad/plugins/plugin_manager.dart';
+import 'package:notepad/services/namespace_registry.dart';
+import 'package:notepad/theme/app_theme.dart';
 import 'package:notepad/theme/theme_controller.dart';
 import 'package:notepad/workbench/bootstrap.dart';
 
@@ -342,6 +345,7 @@ void main() {
 
   testWidgets('设置里切换插件系统：根界面在笔记首页与工作台之间切换且无断言', (tester) async {
     await useSize(tester, const Size(400, 800));
+    addTearDown(tester.view.resetViewInsets);
     final h = await _createHarness(tester);
     addTearDown(() => tester.runAsync(h.dispose));
     await tester.runAsync(() async {
@@ -391,6 +395,33 @@ void main() {
 
     await tester.tap(find.byTooltip('资源管理器').first);
     await _settle(tester);
+    await tester.tap(find.text('笔记').first);
+    await _settle(tester);
+    for (final name in ['切换后的文件夹', '切换后的文件']) {
+      if (find.byTooltip('新建文件夹').evaluate().isEmpty) {
+        await tester.tap(find.byTooltip('资源管理器').first);
+        await _settle(tester);
+      }
+      await tester.tap(find.byTooltip(name.endsWith('夹') ? '新建文件夹' : '新建文件'));
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.enterText(find.byKey(const ValueKey('prompt-input')), name);
+      await tester.tap(find.text('确定'));
+      tester.view.viewInsets = FakeViewPadding.zero;
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 30));
+        expect(tester.takeException(), isNull, reason: '$name 第 $i 帧');
+      }
+    }
+    if (find.byTooltip('设置').evaluate().isEmpty) {
+      await tester.tap(find.byTooltip('资源管理器').first);
+      await _settle(tester);
+    }
     await tester.tap(find.byTooltip('设置').first);
     await _waitFor(tester, find.text('显示与主题'));
     await tester.scrollUntilVisible(find.text('启用插件系统'), 300,
@@ -498,6 +529,7 @@ void main() {
 
   testWidgets('整应用（真实插件管理器 + 运行时）：插件中心里反复启停插件不抛异常', (tester) async {
     await useSize(tester, const Size(400, 800));
+    addTearDown(tester.view.resetViewInsets);
     final h = await _createHarness(tester);
     addTearDown(() => tester.runAsync(h.dispose));
     await tester.runAsync(
@@ -511,10 +543,12 @@ void main() {
       PluginManager.instance
         ..registerBuiltin(builtinNotesPlugin())
         ..registerBuiltin(builtinFileBrowserPlugin());
+      final store = VaultStore(h.tempDir.path);
+      await NamespaceRegistry(store: store).ensureNotes();
       return createWorkbenchRuntime(
         repository: h.repo,
         plugins: PluginManager.instance,
-        sessionStore: MemorySessionStore(),
+        vaultStore: store,
       );
     }))!;
     addTearDown(() => tester.runAsync(() async => runtime.dispose()));
@@ -537,6 +571,27 @@ void main() {
     await tester.tap(find.text('清单.md'));
     await _waitFor(tester, find.widgetWithText(TextField, '牛奶'));
     expect(tester.takeException(), isNull);
+
+    for (final (tooltip, name) in [('新建文件夹', '资料'), ('新建文件', '想法.md')]) {
+      await tester.tap(find.byTooltip('资源管理器').first);
+      await _settle(tester);
+      await tester.tap(find.byTooltip(tooltip));
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(tester.takeException(), isNull);
+      await tester.enterText(find.byKey(const ValueKey('prompt-input')), name);
+      await tester.tap(find.text('确定'));
+      tester.view.viewInsets = FakeViewPadding.zero;
+      for (var i = 0; i < 60; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 30));
+        expect(tester.takeException(), isNull, reason: '$tooltip 第 $i 帧');
+      }
+    }
 
     unawaitedRun(() =>
         runtime.workbench.executeCommand('workbench.action.openPluginCenter'));
@@ -575,6 +630,181 @@ void main() {
     expect(await result, 'b.md');
     expect(tester.takeException(), isNull);
   });
+
+  for (final width in [400.0, 1200.0]) {
+    testWidgets('真实对话框 + 软键盘：新建文件夹 / 新建文件 width=$width', (tester) async {
+      await useSize(tester, Size(width, 800));
+      addTearDown(tester.view.resetViewInsets);
+      final h = await _createHarness(tester);
+      addTearDown(() => tester.runAsync(h.dispose));
+      await _pumpPage(tester, h);
+      if (width < 840) {
+        await tester.tap(find.byTooltip('资源管理器').first);
+        await _settle(tester);
+      }
+      await tester.tap(find.text('笔记').first);
+      await _settle(tester);
+
+      Future<void> create(String tooltip, String name,
+          {bool viaKeyboard = false}) async {
+        if (find.byTooltip(tooltip).evaluate().isEmpty) {
+          await tester.tap(find.byTooltip('资源管理器').first);
+          await _settle(tester);
+        }
+        await tester.tap(find.byTooltip(tooltip));
+        await tester.pump(const Duration(milliseconds: 100));
+        for (var i = 1; i <= 20; i++) {
+          tester.view.viewInsets = FakeViewPadding(bottom: 15.0 * i);
+          await tester.pump(const Duration(milliseconds: 16));
+          expect(tester.takeException(), isNull, reason: '键盘动画第 $i 帧');
+        }
+        await tester.enterText(
+            find.byKey(const ValueKey('prompt-input')), name);
+        await tester.pump(const Duration(milliseconds: 100));
+        if (viaKeyboard) {
+          await tester.testTextInput.receiveAction(TextInputAction.done);
+        } else {
+          await tester.tap(find.text('确定'));
+        }
+        tester.view.viewInsets = FakeViewPadding.zero;
+        for (var i = 0; i < 40; i++) {
+          await tester.runAsync(
+              () => Future<void>.delayed(const Duration(milliseconds: 10)));
+          await tester.pump(const Duration(milliseconds: 30));
+          expect(tester.takeException(), isNull, reason: '$tooltip 第 $i 帧');
+        }
+      }
+
+      await create('新建文件夹', '资料');
+      await create('新建文件', '想法.md', viaKeyboard: true);
+      await create('新建文件夹', '第二个', viaKeyboard: true);
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('笔记首页：速拨菜单新建文件夹 / 文章（含软键盘）无异常', (tester) async {
+    await useSize(tester, const Size(400, 800));
+    addTearDown(tester.view.resetViewInsets);
+    final h = await _createHarness(tester);
+    addTearDown(() => tester.runAsync(h.dispose));
+    await tester.runAsync(
+        () => h.repo.createNode(isFolder: false, title: '清单', content: '牛奶'));
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+              create: (_) => NoteProvider(repository: h.repo)),
+        ],
+        child: MaterialApp(
+          theme: AppTheme.light(),
+          home: const HomePage(),
+        ),
+      ),
+    );
+    await _settle(tester);
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      debugPrint('CAPTURED ${details.exception}\n${details.stack}');
+      previous?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    for (var round = 0; round < 3; round++) {
+      await tester.tap(find.byIcon(Icons.add));
+      await _settle(tester, rounds: 3);
+      await tester.tap(find.byIcon(Icons.create_new_folder_outlined));
+      await tester.pump(const Duration(milliseconds: 100));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(tester.takeException(), isNull);
+      await tester.enterText(find.byType(TextField).last, '夹$round');
+      await tester.tap(find.text('确定'));
+      tester.view.viewInsets = FakeViewPadding.zero;
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 30));
+        expect(tester.takeException(), isNull, reason: '第 $round 轮第 $i 帧');
+      }
+      await tester.tap(find.byIcon(Icons.add));
+      await _settle(tester, rounds: 3);
+      await tester.tap(find.byIcon(Icons.create_outlined));
+      for (var i = 0; i < 40; i++) {
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 30));
+        expect(tester.takeException(), isNull, reason: '文章 第 $round 轮第 $i 帧');
+      }
+      await _waitFor(tester, find.byType(BackButton));
+      await _settle(tester);
+      await tester.pageBack();
+      await _settle(tester);
+      expect(tester.takeException(), isNull);
+    }
+  });
+
+  for (final seed in [1, 2, 3]) {
+    testWidgets('笔记首页随机点击压力 seed=$seed', (tester) async {
+      await useSize(tester, const Size(400, 800));
+      addTearDown(tester.view.resetViewInsets);
+      final h = await _createHarness(tester);
+      addTearDown(() => tester.runAsync(h.dispose));
+      await tester.runAsync(() async {
+        await h.repo.createNode(isFolder: false, title: 'a', content: 'x');
+        await h.repo.createNode(isFolder: true, title: 'dir');
+      });
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider(
+                create: (_) => NoteProvider(repository: h.repo)),
+          ],
+          child: MaterialApp(theme: AppTheme.light(), home: const HomePage()),
+        ),
+      );
+      await _settle(tester);
+      final random = math.Random(seed);
+      for (var i = 0; i < 200; i++) {
+        final candidates = <Finder>[
+          find.byType(FloatingActionButton),
+          find.byType(IconButton),
+          find.byType(ListTile),
+          find.byType(TextButton),
+          find.byType(FilledButton),
+          find.byType(InkWell),
+        ];
+        final fields = find.byType(TextField);
+        if (fields.evaluate().isNotEmpty && random.nextInt(3) == 0) {
+          try {
+            await tester.enterText(fields.last, 'n${random.nextInt(99)}');
+          } catch (_) {}
+        } else {
+          final finder = candidates[random.nextInt(candidates.length)];
+          final count = finder.evaluate().length;
+          if (count > 0) {
+            await tester.tap(finder.at(random.nextInt(count)),
+                warnIfMissed: false);
+          }
+        }
+        if (random.nextInt(8) == 0) {
+          try {
+            final nav =
+                tester.state<NavigatorState>(find.byType(Navigator).first);
+            nav.popUntil(
+                (route) => route.isFirst || route is! MaterialPageRoute);
+          } catch (_) {}
+        }
+        await tester.runAsync(
+            () => Future<void>.delayed(const Duration(milliseconds: 10)));
+        await tester.pump(const Duration(milliseconds: 120));
+        final error = tester.takeException();
+        if (error != null) fail('step $i: $error');
+      }
+    });
+  }
 
   for (final (width, seed) in [
     (400.0, 1),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 
 import '../../services/project_store.dart';
+import '../../services/storage_access.dart';
 import '../../ui/plugins/file_browser_page.dart';
 import '../../ui/plugins/read_only_file_page.dart';
 import '../base/disposable.dart';
@@ -180,8 +181,19 @@ class FilesExtension extends HostExtension {
     return null;
   }
 
+  Future<bool> _ensureStorageAccess(String purpose) {
+    final ui = _context.workbench.ui;
+    return ensureStorageAccess(
+      purpose: purpose,
+      confirm: (title, message) =>
+          ui.confirm(title: title, message: message, confirmLabel: '去授权'),
+      notify: ui.showMessage,
+    );
+  }
+
   Future<Object?> _importProject() async {
     final ui = _context.workbench.ui;
+    if (!await _ensureStorageAccess('导入文件夹')) return null;
     final source = await FilePicker.platform.getDirectoryPath(
       dialogTitle: '选择要导入的文件夹',
     );
@@ -203,6 +215,7 @@ class FilesExtension extends HostExtension {
 
   Future<Object?> _updateProject(FileProject project) async {
     final ui = _context.workbench.ui;
+    if (!await _ensureStorageAccess('更新项目')) return null;
     final source = await FilePicker.platform.getDirectoryPath(
       dialogTitle: '选择项目的新来源目录',
     );

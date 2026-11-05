@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'core/error_surface.dart';
 import 'data/migration/legacy_migrator.dart';
 import 'data/notes_repository.dart';
 import 'data/sqlite_notes_repository.dart';
@@ -25,6 +26,7 @@ import 'workbench/ui/workbench_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorSurface();
   // 初始化插件系统：注册宿主能力 + 注册内置插件（笔记 / 文件系统）。
   registerBuiltinCapabilities();
   await PluginManager.instance.init();

@@ -1005,11 +1005,16 @@ class _SpeedDialState extends State<_SpeedDial> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Text(label, style: const TextStyle(fontSize: 13)),
+        // 标签与按钮同为可点区域（原先只有圆形按钮可点，点文字没反应）。
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Text(label, style: const TextStyle(fontSize: 13)),
+            ),
           ),
         ),
         const SizedBox(width: 8),
