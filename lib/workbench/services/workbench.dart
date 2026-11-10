@@ -456,6 +456,29 @@ class Workbench extends ChangeNotifier {
     unawaited(_persist());
   }
 
+  // ── 在资源管理器中定位 ──
+
+  ResourceUri? _pendingReveal;
+
+  /// 请求资源管理器展开并选中 [uri]：切到资源管理器、展开侧栏，由视图消费。
+  void revealInExplorer(ResourceUri uri) {
+    _pendingReveal = uri;
+    _activeContainer = 'explorer';
+    _sidebarVisible = true;
+    contextKeys.set('sidebarVisible', true);
+    notifyListeners();
+    unawaited(_persist());
+  }
+
+  bool get hasPendingReveal => _pendingReveal != null;
+
+  /// 取走待处理的定位请求（视图处理一次即清除）。
+  ResourceUri? takePendingReveal() {
+    final uri = _pendingReveal;
+    _pendingReveal = null;
+    return uri;
+  }
+
   // ── 资源管理器选中项（供 explorer/context 菜单的 when 使用）──
 
   ResourceUri? _explorerSelection;

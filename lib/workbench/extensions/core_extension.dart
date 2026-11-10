@@ -124,8 +124,23 @@ PluginInfo coreExtensionInfo() => const PluginInfo(
           {'command': 'explorer.rename', 'title': '重命名', 'category': '文件'},
           {'command': 'explorer.delete', 'title': '删除', 'category': '文件'},
           {'command': 'explorer.refresh', 'title': '刷新资源管理器', 'category': '文件'},
+          {
+            'command': 'workbench.action.revealActiveFile',
+            'title': '在资源管理器中定位当前文件',
+            'category': '文件',
+            'when': 'activeEditor && resourceScheme',
+            'icon': 'my_location'
+          },
         ],
         'menus': {
+          'editor/title': [
+            {
+              'command': 'workbench.action.revealActiveFile',
+              'when': 'activeEditor && resourceScheme',
+              'group': '1_navigation',
+              'order': 1
+            },
+          ],
           'commandPalette': [
             {
               'command': 'explorer.rename',
@@ -269,6 +284,16 @@ class CoreExtension extends HostExtension {
     });
     command('workbench.action.openRecycleBin', (ctx) async {
       await ctx.workbench.ui.showPage((_) => const RecycleBinPage());
+      return null;
+    });
+
+    command('workbench.action.revealActiveFile', (ctx) {
+      final resource = ctx.arg<ResourceUri>(0) ?? ctx.workbench.activeTab?.resource;
+      if (resource == null) {
+        ctx.workbench.ui.showMessage('当前没有打开的文件');
+        return null;
+      }
+      ctx.workbench.revealInExplorer(resource);
       return null;
     });
 

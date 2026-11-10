@@ -49,6 +49,9 @@ class _ExplorerViewState extends State<ExplorerView> {
   final Map<ResourceUri, String> _errors = {};
   StreamSubscription<ResourceUri>? _changes;
   ResourceUri? _selected;
+  final ScrollController _scroll = ScrollController();
+
+  static const double _rowHeight = 36;
 
   Workbench get _wb => widget.workbench;
 
@@ -57,13 +60,16 @@ class _ExplorerViewState extends State<ExplorerView> {
     super.initState();
     _wb.addListener(_onWorkbenchChanged);
     _changes = _wb.fileSystems.onDidChange.listen(_onFsChanged);
-    _wb.refreshWorkspace();
+    _wb.refreshWorkspace().whenComplete(() {
+      if (mounted) _consumeReveal();
+    });
   }
 
   @override
   void dispose() {
     _wb.removeListener(_onWorkbenchChanged);
     _changes?.cancel();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -74,6 +80,60 @@ class _ExplorerViewState extends State<ExplorerView> {
     _children.removeWhere((uri, _) => !live.contains(uri.scheme));
     _expanded.removeWhere((uri) => !live.contains(uri.scheme));
     setState(() {});
+    _consumeReveal();
+  }
+
+  void _consumeReveal() {
+    if (!_wb.hasPendingReveal || _wb.workspaceFolders.isEmpty) return;
+    final target = _wb.takePendingReveal();
+    if (target != null) unawaited(_reveal(target));
+  }
+
+  /// 展开目标的全部祖先目录、选中并滚动到可见位置。
+  Future<void> _reveal(ResourceUri target) async {
+    final folder = _wb.workspaceFolders
+        .where((f) => f.scheme == target.scheme)
+        .firstOrNull;
+    if (folder == null || !folder.isActive) {
+      _wb.ui.showMessage('找不到「${target.scheme}」对应的工作区文件夹');
+      return;
+    }
+    final chain = <ResourceUri>[];
+    for (var dir = target.parent; ; dir = dir.parent) {
+      chain.insert(0, dir);
+      if (dir.isRoot) break;
+    }
+    for (final dir in chain) {
+      _expanded.add(dir);
+      if (!_children.containsKey(dir)) await _load(dir);
+      if (!mounted) return;
+    }
+    final isDirectory = _children[target.parent]
+            ?.any((e) => e.name == target.basename && e.isDirectory) ??
+        false;
+    if (!(_children[target.parent]?.any((e) => e.name == target.basename) ??
+        target.isRoot)) {
+      _wb.ui.showMessage('「${_wb.titleFor(target)}」已不存在');
+      setState(() {});
+      return;
+    }
+    _selected = target;
+    _wb.setExplorerSelection(target, isFolder: isDirectory);
+    setState(() {});
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final index = _rows().indexWhere((r) => r.uri == target);
+      if (index < 0) return;
+      final viewport = _scroll.position.viewportDimension;
+      final offset = (index * _rowHeight - viewport / 3)
+          .clamp(0.0, _scroll.position.maxScrollExtent);
+      unawaited(_scroll.animateTo(
+        offset,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+      ));
+    });
+    WidgetsBinding.instance.scheduleFrame();
   }
 
   void _onFsChanged(ResourceUri dir) {
@@ -301,6 +361,7 @@ class _ExplorerViewState extends State<ExplorerView> {
           child: rows.isEmpty
               ? _EmptyExplorer(workbench: _wb, onRun: _run, can: _can)
               : ListView.builder(
+                  controller: _scroll,
                   itemCount: rows.length,
                   itemBuilder: (context, index) =>
                       _buildRow(context, rows[index]),
@@ -340,7 +401,7 @@ class _ExplorerViewState extends State<ExplorerView> {
                 right: 4,
               ),
               child: SizedBox(
-                height: 36,
+                height: _rowHeight,
                 child: Row(
                   children: [
                     SizedBox(

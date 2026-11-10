@@ -7,6 +7,8 @@ IconData iconByName(String? name) {
       return Icons.search;
     case 'folder_open':
       return Icons.folder_open_outlined;
+    case 'my_location':
+      return Icons.my_location;
     case 'folder':
       return Icons.folder_outlined;
     case 'note_alt':

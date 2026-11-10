@@ -10,6 +10,9 @@ enum StartPage { home, editor }
 /// 存储后端（v2 默认文件化 vault；可回退 sqlite）。
 enum StorageBackend { files, sqlite }
 
+/// 文档库位置：应用内部目录 / 公共「文档/NotePad」（仅 Android 需要区分）。
+enum StorageLocation { internal, documents }
+
 /// 应用设置服务。
 ///
 /// 跨平台统一使用 shared_preferences 实现键值存储，
@@ -43,6 +46,7 @@ class SettingsService {
   static const _kEnablePluginSystem = 'pref_enable_plugin_system';
   static const _kPluginSource = 'pref_plugin_source';
   static const _kStorageBackend = 'storage.backend';
+  static const _kStorageLocation = 'storage.location';
 
   static SettingsService? _instance;
 
@@ -183,4 +187,17 @@ class SettingsService {
 
   Future<void> setStorageBackend(StorageBackend backend) =>
       _prefs.setString(_kStorageBackend, backend.name);
+
+  /// 文档库位置；未设置（首次启动 / 旧版本升级）返回 null，由启动流程决定。
+  StorageLocation? get storageLocation {
+    final value = _prefs.getString(_kStorageLocation);
+    if (value == null) return null;
+    for (final location in StorageLocation.values) {
+      if (location.name == value) return location;
+    }
+    return null;
+  }
+
+  Future<void> setStorageLocation(StorageLocation location) =>
+      _prefs.setString(_kStorageLocation, location.name);
 }

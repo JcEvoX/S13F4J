@@ -39,6 +39,7 @@ class _WorkbenchPageState extends State<WorkbenchPage> {
     _ui = _PageUi(this);
     _wb.ui = _ui;
     _wb.addListener(_closeDrawerOnNewEditor);
+    _wb.addListener(_openDrawerOnReveal);
     unawaited(_boot());
   }
 
@@ -64,8 +65,21 @@ class _WorkbenchPageState extends State<WorkbenchPage> {
     });
   }
 
+  /// 窄屏：定位请求需要资源管理器可见，抽屉没开就先打开。
+  void _openDrawerOnReveal() {
+    if (!_wb.hasPendingReveal) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final scaffold = _scaffoldKey.currentState;
+      if (mounted && scaffold != null && !scaffold.isDrawerOpen) {
+        scaffold.openDrawer();
+      }
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
   @override
   void dispose() {
+    _wb.removeListener(_openDrawerOnReveal);
     _wb.removeListener(_closeDrawerOnNewEditor);
     if (identical(_wb.ui, _ui)) _wb.ui = HeadlessWorkbenchUi();
     super.dispose();

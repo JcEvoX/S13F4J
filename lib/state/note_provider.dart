@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/notes_repository.dart';
 import '../data/sqlite_notes_repository.dart';
@@ -55,6 +56,45 @@ class NoteProvider extends ChangeNotifier {
   /// 当前正在编辑的文章 id（编辑器打开时写入，供首页「定位」使用）。
   String? _currentEditingNodeId;
   String? get currentEditingNodeId => _currentEditingNodeId;
+
+  static const _kLastEditedNodeId = 'note.lastEditedNodeId';
+
+  /// 最后一次编辑（打开 / 保存）的文章 id，持久化。
+  ///
+  /// 编辑器关闭后 [currentEditingNodeId] 会清空，「定位正在编辑的文章」靠它
+  /// 找回最近编辑的那一篇，重启应用后依然有效。
+  String? _lastEditedNodeId;
+  bool _lastEditedLoaded = false;
+
+  Future<String?> lastEditedNodeId() async {
+    if (!_lastEditedLoaded) {
+      _lastEditedLoaded = true;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        _lastEditedNodeId ??= prefs.getString(_kLastEditedNodeId);
+      } catch (e) {
+        debugPrint('[NoteProvider] 读取最后编辑文章失败: $e');
+      }
+    }
+    return _lastEditedNodeId;
+  }
+
+  /// 记录最后编辑的文章（不触发界面刷新）。
+  Future<void> markEdited(String id) async {
+    if (_lastEditedNodeId == id && _lastEditedLoaded) return;
+    _lastEditedNodeId = id;
+    _lastEditedLoaded = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kLastEditedNodeId, id);
+    } catch (e) {
+      debugPrint('[NoteProvider] 保存最后编辑文章失败: $e');
+    }
+  }
+
+  /// 「定位」的目标：正在编辑的优先，其次是最后一次编辑的。
+  Future<String?> locateTargetId() async =>
+      _currentEditingNodeId ?? await lastEditedNodeId();
 
   bool _disposed = false;
 

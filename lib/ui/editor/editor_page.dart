@@ -108,6 +108,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       }
     }
     if (!mounted) return;
+    if (node != null && !node.isFolder) unawaited(provider.markEdited(node.id));
     setState(() {
       _settings = settings;
       _node = node;
@@ -216,6 +217,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     try {
       await provider.saveBody(node.id, content);
       _saveStatus = '已保存';
+      unawaited(provider.markEdited(node.id));
       try {
         _baseFingerprint = await provider.bodyFingerprint(node.id);
       } catch (_) {

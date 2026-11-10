@@ -93,15 +93,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 定位当前正在编辑的文章：逐层进入所在文件夹并滚动到该文章。
   Future<void> _locateEditingNote() async {
     final provider = context.read<NoteProvider>();
-    final id = provider.currentEditingNodeId;
+    final id = await provider.locateTargetId();
+    if (!mounted) return;
     if (id == null) {
-      _showSnack('当前没有正在编辑的文章');
+      _showSnack('还没有编辑过文章');
       return;
     }
     final index = await provider.navigateToNode(id);
     if (!mounted) return;
     if (index == null) {
-      _showSnack('未找到正在编辑的文章（可能已删除或移入回收站）');
+      _showSnack('最后编辑的文章已不存在（可能已删除或移入回收站）');
       return;
     }
     // 等待列表按新层级渲染完成后，再滚动到目标项。

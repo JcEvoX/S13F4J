@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -13,12 +15,14 @@ import 'plugins/plugin_manager.dart';
 import 'services/backup_service.dart';
 import 'services/namespace_registry.dart';
 import 'services/settings_service.dart';
+import 'services/storage_access.dart';
 import 'services/storage_paths.dart';
 import 'state/note_provider.dart';
 import 'theme/app_theme.dart';
 import 'theme/theme_controller.dart';
 import 'ui/home/capability_home_page.dart';
 import 'ui/home/home_page.dart';
+import 'ui/settings/storage_location_page.dart';
 import 'workbench/bootstrap.dart';
 import 'workbench/services/quick_open.dart';
 import 'workbench/services/workbench.dart';
@@ -37,6 +41,7 @@ Future<void> main() async {
   final themeController = await ThemeController.load();
   // 数据后端：默认文件化 vault；失败回退 sqlite。
   final settings = await SettingsService.instance;
+  await _ensureStorageLocation(settings);
   final storagePaths = await StoragePaths.resolve();
   final opened = await _openRepository(settings, storagePaths);
   final repository = opened.repository;
@@ -58,6 +63,43 @@ Future<void> main() async {
       pluginSystemEnabled: settings.pluginSystemEnabled,
     ),
   );
+}
+
+/// 打开文档库之前确定存放位置。
+///
+/// - Android 首次启动（含从旧版本升级）：让用户选「文档/NotePad」或应用内部，
+///   现有笔记会被复制过去
+/// - 之前选了公共文档、但授权被撤销：重新引导授权，避免静默写进内部的过期副本
+/// - 其它平台：直接使用应用文档目录
+Future<void> _ensureStorageLocation(SettingsService settings) async {
+  final saved = settings.storageLocation;
+  if (!StoragePaths.documentsLocationAvailable) {
+    if (saved == null) await settings.setStorageLocation(StorageLocation.internal);
+    return;
+  }
+  String? reason;
+  if (saved == StorageLocation.documents) {
+    if (await StorageAccess.instance.isGranted()) return;
+    reason = '「文档/NotePad」需要「所有文件访问」权限，当前权限已被关闭。'
+        '请重新授权，或改为仅应用内部（内部可能是旧的副本）。';
+  } else if (saved != null) {
+    return;
+  }
+  final done = Completer<void>();
+  runApp(
+    MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.blue),
+      home: StorageLocationPage(
+        settings: settings,
+        reason: reason,
+        onDone: (_, __) {
+          if (!done.isCompleted) done.complete();
+        },
+      ),
+    ),
+  );
+  await done.future;
 }
 
 Future<({NotesRepository repository, VaultStore? store})> _openRepository(
