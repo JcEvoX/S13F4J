@@ -366,6 +366,16 @@ abstract class StorageCapability {
 - `Capability` 增 `namespaceId`，与 `StorageCapability` 对接。
 - 验收：卸载笔记 → 数据零变化 → 备份 / trash 可用 → 重装恢复；`forget` 需双重确认且要求 trash 为空。
 
+### M7 · 工作台能力底座（W1–W3，已落地）
+
+M0–M5 解决「数据怎么存」；M7 解决「能力怎么长」：笔记不再是应用本体，而是工作台上的一个能力。
+
+- W1：`lib/workbench/base` + `services`——`ResourceUri`、`FileSystemProvider` / 注册表、`CommandRegistry`、`when` 子句与上下文键、`ContributionRegistry`、`EditorRegistry`（按 scheme + 文件名模式 + 优先级解析）、`ExtensionHost`（激活事件 / 停用释放 / 失败隔离）、`Workbench`（标签 / 会话 / 工作区）、`QuickOpenService`。
+- W2：`extensions/` 里的 core（通用命令、文本编辑器、欢迎页、资源管理器视图）、notes（`NotesFileSystemProvider` + Markdown 编辑器复用 `EditorPage`）、files（`ProjectFileSystemProvider`，项目增删同步）；内置插件 manifest 迁为声明式 `contributes`。
+- W3：`WorkbenchPage`（宽屏三栏 / 窄屏抽屉）、资源管理器、标签条、命令面板、状态栏；`main.dart` 在「插件系统」开启时切换根界面。
+- 验收：插件停用 → 命令 / 菜单 / 视图 / 编辑器 / 文件系统即时消失且相关标签关闭，数据不动；再启用 → 懒激活恢复；`widget` 与单元测试见 [workbench.md §10](./workbench.md)。
+- 后续（W4/W5）：全文搜索视图、打开方式持久化、编辑器拆分、桌面快捷键细化、设置贡献点、git 能力。
+
 ### M6 · 明确不在本期
 
 真 iCloud Drive 同步、git 插件、FTS 全文索引、附件插入 UI、加密、协作、桌面端正式支持。
@@ -443,6 +453,7 @@ abstract class StorageCapability {
 | M3 UI | 已对接：首页、编辑器、搜索、回收站、外部改动对账 | 无 widget 级覆盖 | 手工矩阵待执行 |
 | M4 备份 / 回收站 | 已实现：`BackupCenter`、聚合回收站、WebDAV、数据健康页；Android `fullBackupContent` / `dataExtractionRules` 与 iOS `isExcludedFromBackup` 已配置 | 无 | 缺 `backup_center_test`（hash 失败 / zip slip / zip bomb / 中断重入）；`TrashCenter` 未独立拆出；平台排除项需真机验证 |
 | M5 插件语义 | 已实现：manifest `namespace` / `uninstallable` / `schema`、内置笔记可卸载（= 停用）、启停状态跨重启保留、注册表启动对齐、`forget` 回收站非空拒绝、笔记停用后的能力首页 | `namespace_registry_test`、`plugin_model_test` | `forget` 暂无 UI 入口（仅 `removeProject` 内部使用） |
-| 文件阅读 | 项目导入 / 浏览 / 更新 / 移除 / 另存为笔记已实现 | 无 | `ExternalOpenService`（系统打开方式 / 分享）待排期 |
+| 文件阅读 | 项目导入 / 浏览 / 更新 / 移除 / 另存为笔记已实现；工作台里以只读 `files.<id>` 资源呈现 | `workbench_page_test`（只读资源） | `ExternalOpenService`（系统打开方式 / 分享）待排期 |
+| M7 工作台底座 | W1–W3 完成：资源 / 命令 / when / 贡献点 / 编辑器解析 / 扩展宿主 / 工作台外壳 / 命令面板 | `test/workbench/*`（单元 + widget，79 例） | 无设备端手工验证；W4 起（全文搜索、编辑器拆分、设置贡献点）待排期 |
 
 **后续建议顺序**：补 `backup_center_test` 与迁移黄金测试（风险最高的两条数据路径）→ 补 tree / 对账 / 崩溃注入测试 → 拆出 `TrashCenter` → 清理 sqlite 实现（D10：保留至下一个大版本）。

@@ -14,10 +14,14 @@ import '../preview/markdown_toolbar.dart';
 /// 支持 Markdown 语法编辑、二次工具栏插入符号、实时字数统计、
 /// 撤销/重做，以及与「预览」页的切换。
 class EditorPage extends StatefulWidget {
-  const EditorPage({super.key, required this.nodeId});
+  const EditorPage({super.key, required this.nodeId, this.embedded = false});
 
   /// 编辑的文章节点 id。
   final String nodeId;
+
+  /// 嵌入工作台标签时为 true：不带返回按钮，也不拦截系统返回
+  /// （关闭标签时由 dispose 兜底落盘）。
+  final bool embedded;
 
   @override
   State<EditorPage> createState() => _EditorPageState();
@@ -70,12 +74,27 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _load();
   }
 
+  /// 在帧结束后更新「当前编辑文章」：initState / dispose 处于构建与卸载阶段，
+  /// 此时通知 Provider 会触发 setState during build / 树已锁定的断言。
+  static void _setEditingAfterFrame(
+    NoteProvider provider,
+    String? id, {
+    String? onlyIf,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (onlyIf != null && provider.currentEditingNodeId != onlyIf) return;
+      provider.setCurrentEditingNodeId(id);
+    });
+    WidgetsBinding.instance.scheduleFrame();
+  }
+
   Future<void> _load() async {
     debugPrint('[Editor] 打开 nodeId=${widget.nodeId}');
     final provider = context.read<NoteProvider>();
     _provider = provider;
     // 记录当前正在编辑的文章，供首页「定位正在编辑的文章」使用。
-    provider.setCurrentEditingNodeId(widget.nodeId);
+    // 嵌入工作台标签时同时存在多个编辑器，「当前编辑文章」只对首页定位有意义。
+    if (!widget.embedded) _setEditingAfterFrame(provider, widget.nodeId);
     final settings = await SettingsService.instance;
     final node = await provider.nodeById(widget.nodeId);
     var body = node?.content ?? '';
@@ -89,6 +108,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
       }
     }
     if (!mounted) return;
+    if (node != null && !node.isFolder) unawaited(provider.markEdited(node.id));
     setState(() {
       _settings = settings;
       _node = node;
@@ -197,6 +217,7 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     try {
       await provider.saveBody(node.id, content);
       _saveStatus = '已保存';
+      unawaited(provider.markEdited(node.id));
       try {
         _baseFingerprint = await provider.bodyFingerprint(node.id);
       } catch (_) {
@@ -347,7 +368,10 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     _saveTimer = null;
     if (_dirty) unawaited(_save());
     // 离开编辑器后清除「当前编辑文章」，避免首页定位到已关闭的文章。
-    _provider?.setCurrentEditingNodeId(null);
+    final provider = _provider;
+    if (!widget.embedded && provider != null) {
+      _setEditingAfterFrame(provider, null, onlyIf: widget.nodeId);
+    }
     _controller.dispose();
     _focus.dispose();
     super.dispose();
@@ -370,6 +394,9 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
     final fontFamily = settings.editorFontFamily == 'system'
         ? null
         : settings.editorFontFamily;
+
+    final scaffold = _buildScaffold(node, settings, fontSize, fontFamily);
+    if (widget.embedded) return scaffold;
 
     return PopScope(
       // 返回前先把待保存内容落库，保证上一页（首页 / 最近编辑 / 搜索）
@@ -394,81 +421,95 @@ class _EditorPageState extends State<EditorPage> with WidgetsBindingObserver {
           }
         }
       },
-      child: Scaffold(
-        appBar: AppBar(
-          // 编辑器标题居中显示。
-          centerTitle: true,
-          title: Text(node.title.isEmpty ? '未命名' : node.title),
-          actions: [
+      child: scaffold,
+    );
+  }
+
+  Widget _buildScaffold(
+    NotePadNode node,
+    SettingsService settings,
+    double fontSize,
+    String? fontFamily,
+  ) {
+    return Scaffold(
+      appBar: AppBar(
+        // 编辑器标题居中显示；嵌入标签时不要返回按钮。
+        centerTitle: !widget.embedded,
+        automaticallyImplyLeading: !widget.embedded,
+        // 嵌入标签时标题已在标签条 / 顶栏显示，这里只留紧凑的状态与操作行。
+        toolbarHeight: widget.embedded ? 40 : null,
+        title: widget.embedded
+            ? null
+            : Text(node.title.isEmpty ? '未命名' : node.title),
+        actions: [
+          Center(
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                _saveStatus,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _saveStatus == '保存失败'
+                      ? Theme.of(context).colorScheme.error
+                      : Colors.grey.shade600,
+                ),
+              ),
+            ),
+          ),
+          if (settings.showWordCount)
             Center(
               child: Padding(
                 padding: const EdgeInsets.only(right: 4),
-                child: Text(
-                  _saveStatus,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: _saveStatus == '保存失败'
-                        ? Theme.of(context).colorScheme.error
-                        : Colors.grey.shade600,
-                  ),
-                ),
+                child: Text('$_wordCount 字',
+                    style:
+                        TextStyle(color: Colors.grey.shade600, fontSize: 12)),
               ),
             ),
-            if (settings.showWordCount)
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 4),
-                  child: Text('$_wordCount 字',
-                      style: TextStyle(
-                          color: Colors.grey.shade600, fontSize: 12)),
+          IconButton(
+            icon: const Icon(Icons.visibility_outlined),
+            tooltip: '预览',
+            onPressed: () async {
+              await _flushSave();
+              if (!mounted) return;
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => PreviewPage(
+                    title: node.title,
+                    content: _controller.text,
+                  ),
                 ),
-              ),
-            IconButton(
-              icon: const Icon(Icons.visibility_outlined),
-              tooltip: '预览',
-              onPressed: () async {
-                await _flushSave();
-                if (!mounted) return;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PreviewPage(
-                      title: node.title,
-                      content: _controller.text,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-        body: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                child: TextField(
-                  controller: _controller,
-                  focusNode: _focus,
-                  maxLines: null,
-                  keyboardType: TextInputType.multiline,
-                  style: TextStyle(
-                    fontSize: fontSize,
-                    height: 1.7,
-                    fontFamily: fontFamily,
-                  ),
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: '开始书写，半角 # 表示标题…',
-                  ),
-                  onChanged: (_) => _onEditingChanged(),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+              child: TextField(
+                controller: _controller,
+                focusNode: _focus,
+                maxLines: null,
+                keyboardType: TextInputType.multiline,
+                style: TextStyle(
+                  fontSize: fontSize,
+                  height: 1.7,
+                  fontFamily: fontFamily,
                 ),
+                decoration: const InputDecoration(
+                  border: InputBorder.none,
+                  hintText: '开始书写，半角 # 表示标题…',
+                ),
+                onChanged: (_) => _onEditingChanged(),
               ),
             ),
-            // 双层工具栏：Core 常用符号。
-            MarkdownToolbar(onInsert: _insert),
-          ],
-        ),
+          ),
+          // 双层工具栏：Core 常用符号。
+          MarkdownToolbar(onInsert: _insert),
+        ],
       ),
     );
   }

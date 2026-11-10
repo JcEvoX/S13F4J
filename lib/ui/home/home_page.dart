@@ -93,15 +93,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// 定位当前正在编辑的文章：逐层进入所在文件夹并滚动到该文章。
   Future<void> _locateEditingNote() async {
     final provider = context.read<NoteProvider>();
-    final id = provider.currentEditingNodeId;
+    final id = await provider.locateTargetId();
+    if (!mounted) return;
     if (id == null) {
-      _showSnack('当前没有正在编辑的文章');
+      _showSnack('还没有编辑过文章');
       return;
     }
     final index = await provider.navigateToNode(id);
     if (!mounted) return;
     if (index == null) {
-      _showSnack('未找到正在编辑的文章（可能已删除或移入回收站）');
+      _showSnack('最后编辑的文章已不存在（可能已删除或移入回收站）');
       return;
     }
     // 等待列表按新层级渲染完成后，再滚动到目标项。
@@ -515,14 +516,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   /// 重命名：底部弹出输入框。
   Future<void> _rename(NotePadNode node) async {
-    final controller = TextEditingController(text: node.title);
     final title = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => _RenameSheet(controller: controller, isFolder: node.isFolder),
+      builder: (ctx) =>
+          _RenameSheet(initialText: node.title, isFolder: node.isFolder),
     );
-    controller.dispose();
     if (!mounted || title == null || title.trim().isEmpty) return;
     final provider = context.read<NoteProvider>();
     await provider.renameNode(node.id, title.trim());
@@ -660,9 +660,9 @@ class _FolderCreateSheetState extends State<_FolderCreateSheet> {
 
 /// 重命名底部面板。
 class _RenameSheet extends StatefulWidget {
-  const _RenameSheet({required this.controller, required this.isFolder});
+  const _RenameSheet({required this.initialText, required this.isFolder});
 
-  final TextEditingController controller;
+  final String initialText;
   final bool isFolder;
 
   @override
@@ -670,6 +670,16 @@ class _RenameSheet extends StatefulWidget {
 }
 
 class _RenameSheetState extends State<_RenameSheet> {
+  // 控制器归面板自己管：面板退场动画期间输入框仍在使用它。
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initialText);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -717,7 +727,7 @@ class _RenameSheetState extends State<_RenameSheet> {
               ),
               const SizedBox(height: 14),
               TextField(
-                controller: widget.controller,
+                controller: _controller,
                 autofocus: true,
                 textInputAction: TextInputAction.done,
                 onSubmitted: (_) => _submit(),
@@ -750,7 +760,7 @@ class _RenameSheetState extends State<_RenameSheet> {
   }
 
   void _submit() {
-    final title = widget.controller.text.trim();
+    final title = _controller.text.trim();
     if (title.isEmpty) return;
     Navigator.pop(context, title);
   }
@@ -996,11 +1006,16 @@ class _SpeedDialState extends State<_SpeedDial> {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Card(
-          elevation: 2,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Text(label, style: const TextStyle(fontSize: 13)),
+        // 标签与按钮同为可点区域（原先只有圆形按钮可点，点文字没反应）。
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: onTap,
+          child: Card(
+            elevation: 2,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Text(label, style: const TextStyle(fontSize: 13)),
+            ),
           ),
         ),
         const SizedBox(width: 8),

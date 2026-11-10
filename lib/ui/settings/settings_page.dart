@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../services/settings_service.dart';
+import '../../services/storage_paths.dart';
 import '../../theme/theme_controller.dart';
 import '../../theme/wallpapers.dart';
 import '../about/about_page.dart';
@@ -11,6 +12,7 @@ import '../plugins/plugin_center_page.dart';
 import '../recent/recent_page.dart';
 import '../statistics/statistics_page.dart';
 import 'data_health_page.dart';
+import 'storage_location_page.dart';
 import '../theme/editor_font_page.dart';
 import '../theme/wallpaper_page.dart';
 import '../webdav/webdav_page.dart';
@@ -96,6 +98,14 @@ class _SettingsPageState extends State<SettingsPage> {
                 ]),
                 _section('存储与数据'),
                 _group([
+                  _item(
+                    icon: Icons.folder_open_outlined,
+                    title: '存储位置',
+                    subtitle: s.storageLocation == StorageLocation.documents
+                        ? '文档/NotePad（公共文档目录）'
+                        : '应用内部目录',
+                    onTap: () => _pickStorageLocation(s),
+                  ),
                   _item(
                     icon: Icons.storage_outlined,
                     title: '存储后端',
@@ -384,6 +394,36 @@ class _SettingsPageState extends State<SettingsPage> {
       await s.setStartPage(selected);
       if (mounted) setState(() {});
     }
+  }
+
+  Future<void> _pickStorageLocation(SettingsService s) async {
+    if (!StoragePaths.documentsLocationAvailable) {
+      final root = await StoragePaths.internalVaultRoot();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('笔记保存在：$root')));
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    await navigator.push<void>(
+      MaterialPageRoute(
+        builder: (_) => StorageLocationPage(
+          settings: s,
+          canCancel: true,
+          onDone: (location, message) {
+            navigator.pop();
+            messenger.showSnackBar(
+              SnackBar(
+                content: Text('$message\n重启应用后生效'),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+    if (mounted) setState(() {});
   }
 
   Future<void> _pickStorageBackend(SettingsService s) async {
